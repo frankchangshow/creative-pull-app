@@ -42,7 +42,7 @@ jobs:
         pyinstaller --onefile --windowed --name "Creative_Pull_UI" creative_previewer_app_webview.py
         
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: Creative_Pull_UI_Windows
         path: dist/Creative_Pull_UI.exe
