@@ -1620,13 +1620,12 @@ Raw Size: {self.selected_creative['size']}"""
                 </div>
                 
                 <div class="url-section">
-                    <div class="vast-url{' single' if not click_through_url else ''}">
+                    <div class="vast-url{' single' if not click_through_url else ""}">
                         <button class="copy-button" onclick="copyToClipboard('{vast_url}')">Copy</button>
                         <strong>🎯 Video URL:</strong><br>
                         {vast_url}
                     </div>
                     
-                    {f'<div class="vast-url"><button class="copy-button" onclick="copyToClipboard(\'{click_through_url}\')">Copy</button><strong>🔗 Click-Through URL:</strong><br>{click_through_url}</div>' if click_through_url else ''}
                 </div>
                 
                 {companion_info['html'] if companion_info['found'] else '<div class="companion-section"><h3>🖼️ Companion Ads</h3><p>No Companion</p></div>'}
