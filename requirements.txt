@@ -1,0 +1,3 @@
+databricks-sql
+requests
+pyinstaller

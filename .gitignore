@@ -1,0 +1,51 @@
+# Build directories
+dist/
+dist_windows/
+build/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# PyInstaller files
+*.spec
+*.exe
+*.app
+*.dmg
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python cache
+*.pyc
+*.pyo
+__pycache__/
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Large data files
+*.csv
+*.json
+*.xml
+*.zip
+*.tar.gz
+
+# Databricks credentials (security)
+config.ini
+.env

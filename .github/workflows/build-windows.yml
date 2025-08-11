@@ -1,0 +1,59 @@
+name: Build Windows Executable
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install databricks-sql requests pyinstaller
+        
+    - name: Build executable
+      run: |
+        pyinstaller --clean Creative_Pull_UI_Windows_Compatible.spec
+        
+    - name: Create distribution package
+      run: |
+        # Create a clean distribution folder
+        mkdir -p dist/Creative_Pull_App_Windows_v3_64bit
+        
+        # Copy the executable and necessary files
+        copy dist\Creative_Pull_UI.exe dist\Creative_Pull_App_Windows_v3_64bit\
+        copy Start_Creative_Pull_App.bat dist\Creative_Pull_App_Windows_v3_64bit\
+        copy INSTALL_INSTRUCTIONS_v2_Compatible.txt dist\Creative_Pull_App_Windows_v3_64bit\
+        copy requirements.txt dist\Creative_Pull_App_Windows_v3_64bit\
+        
+        # Create a simple launcher script
+        echo @echo off > dist\Creative_Pull_App_Windows_v3_64bit\Launch_App.bat
+        echo echo Starting Creative Pull App... >> dist\Creative_Pull_App_Windows_v3_64bit\Launch_App.bat
+        echo echo. >> dist\Creative_Pull_App_Windows_v3_64bit\Launch_App.bat
+        echo echo If you get a security warning, right-click the app and select "Run as administrator" >> dist\Creative_Pull_App_Windows_v3_64bit\Launch_App.bat
+        echo echo. >> dist\Creative_Pull_App_Windows_v3_64bit\Launch_App.bat
+        echo start "" "Creative_Pull_UI.exe" >> dist\Creative_Pull_App_Windows_v3_64bit\Launch_App.bat
+        echo pause >> dist\Creative_Pull_App_Windows_v3_64bit\Launch_App.bat
+        
+        # Create ZIP archive
+        powershell Compress-Archive -Path dist\Creative_Pull_App_Windows_v3_64bit -DestinationPath dist\Creative_Pull_App_Windows_v3_64bit.zip
+        
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: Creative_Pull_App_Windows_v3_64bit
+        path: dist/Creative_Pull_App_Windows_v3_64bit.zip
