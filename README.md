@@ -90,4 +90,4 @@ Tested on:
 
 ## License
 
-MIT 
+MIT # Trigger GitHub Actions build
