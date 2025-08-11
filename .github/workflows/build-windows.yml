@@ -25,9 +25,13 @@ jobs:
         python -m pip install --upgrade pip
         pip install databricks-sql requests pyinstaller
         
+    - name: Test Python import
+      run: |
+        python -c "from databricks import sql; print('Import successful')"
+        
     - name: Build executable
       run: |
-        pyinstaller --clean --onefile --windowed --name "Creative_Pull_UI" creative_previewer_app_webview.py
+        pyinstaller --clean --onefile --windowed --name "Creative_Pull_UI" --hidden-import databricks.sql creative_previewer_app_webview.py
         
     - name: Create distribution package
       run: |
