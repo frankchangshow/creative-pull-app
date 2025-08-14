@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Savanna Token Debugger</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .button {
+            background: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        .button:hover {
+            background: #0056b3;
+        }
+        .debug-section {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .debug-title {
+            font-weight: bold;
+            color: #495057;
+            margin-bottom: 10px;
+        }
+        .debug-content {
+            font-family: monospace;
+            font-size: 11px;
+            background: white;
+            padding: 10px;
+            border-radius: 3px;
+            border: 1px solid #ced4da;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .instructions {
+            background: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Savanna Token Debugger</h1>
+        
+        <div class="instructions">
+            <h3>📋 Instructions:</h3>
+            <ol>
+                <li><strong>Keep this tab open</strong></li>
+                <li><strong>Make sure you're logged into Savanna</strong> in another tab</li>
+                <li><strong>Click "Debug Browser Storage"</strong> to see what's actually stored</li>
+                <li><strong>Look for any JWT-like strings</strong> in the output</li>
+            </ol>
+        </div>
+
+        <div style="text-align: center;">
+            <button class="button" onclick="debugBrowserStorage()">🔍 Debug Browser Storage</button>
+            <button class="button" onclick="clearDebug()">🗑️ Clear Debug</button>
+        </div>
+
+        <div id="debug-results"></div>
+    </div>
+
+    <script>
+        function debugBrowserStorage() {
+            const resultsDiv = document.getElementById('debug-results');
+            resultsDiv.innerHTML = '<div class="debug-section">🔍 Debugging browser storage...</div>';
+            
+            let debugOutput = '';
+            
+            try {
+                // 1. Check localStorage
+                debugOutput += '=== LOCALSTORAGE ===\n';
+                const localStorageKeys = Object.keys(localStorage);
+                debugOutput += `Found ${localStorageKeys.length} localStorage keys:\n`;
+                
+                for (const key of localStorageKeys) {
+                    const value = localStorage.getItem(key);
+                    debugOutput += `\nKey: ${key}\n`;
+                    debugOutput += `Value: ${value}\n`;
+                    debugOutput += `Length: ${value ? value.length : 0}\n`;
+                    debugOutput += `Starts with eyJ: ${value && value.startsWith('eyJ') ? 'YES' : 'NO'}\n`;
+                    debugOutput += `---\n`;
+                }
+                
+                // 2. Check sessionStorage
+                debugOutput += '\n=== SESSIONSTORAGE ===\n';
+                const sessionStorageKeys = Object.keys(sessionStorage);
+                debugOutput += `Found ${sessionStorageKeys.length} sessionStorage keys:\n`;
+                
+                for (const key of sessionStorageKeys) {
+                    const value = sessionStorage.getItem(key);
+                    debugOutput += `\nKey: ${key}\n`;
+                    debugOutput += `Value: ${value}\n`;
+                    debugOutput += `Length: ${value ? value.length : 0}\n`;
+                    debugOutput += `Starts with eyJ: ${value && value.startsWith('eyJ') ? 'YES' : 'NO'}\n`;
+                    debugOutput += `---\n`;
+                }
+                
+                // 3. Check cookies
+                debugOutput += '\n=== COOKIES ===\n';
+                const cookies = document.cookie.split(';');
+                debugOutput += `Found ${cookies.length} cookies:\n`;
+                
+                for (const cookie of cookies) {
+                    const [name, value] = cookie.trim().split('=');
+                    debugOutput += `\nName: ${name}\n`;
+                    debugOutput += `Value: ${value}\n`;
+                    debugOutput += `Length: ${value ? value.length : 0}\n`;
+                    debugOutput += `Starts with eyJ: ${value && value.startsWith('eyJ') ? 'YES' : 'NO'}\n`;
+                    debugOutput += `---\n`;
+                }
+                
+                // 4. Check page content for any JWT-like strings
+                debugOutput += '\n=== PAGE CONTENT JWT SEARCH ===\n';
+                const pageText = document.documentElement.outerHTML;
+                const jwtPattern = /eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*/g;
+                const matches = pageText.match(jwtPattern);
+                
+                if (matches) {
+                    debugOutput += `Found ${matches.length} potential JWT strings:\n`;
+                    matches.forEach((match, index) => {
+                        debugOutput += `\nMatch ${index + 1}:\n`;
+                        debugOutput += `Length: ${match.length}\n`;
+                        debugOutput += `Value: ${match}\n`;
+                        debugOutput += `---\n`;
+                    });
+                } else {
+                    debugOutput += 'No JWT-like strings found in page content\n';
+                }
+                
+                // 5. Check JavaScript variables
+                debugOutput += '\n=== JAVASCRIPT VARIABLES ===\n';
+                try {
+                    if (window.accessToken) {
+                        debugOutput += `window.accessToken: ${window.accessToken}\n`;
+                        debugOutput += `Starts with eyJ: ${window.accessToken.startsWith('eyJ') ? 'YES' : 'NO'}\n`;
+                    } else {
+                        debugOutput += `window.accessToken: NOT FOUND\n`;
+                    }
+                    
+                    if (window.token) {
+                        debugOutput += `window.token: ${window.token}\n`;
+                        debugOutput += `Starts with eyJ: ${window.token.startsWith('eyJ') ? 'YES' : 'NO'}\n`;
+                    } else {
+                        debugOutput += `window.token: NOT FOUND\n`;
+                    }
+                    
+                    if (window.bearerToken) {
+                        debugOutput += `window.bearerToken: ${window.bearerToken}\n`;
+                        debugOutput += `Starts with eyJ: ${window.bearerToken.startsWith('eyJ') ? 'YES' : 'NO'}\n`;
+                    } else {
+                        debugOutput += `window.bearerToken: NOT FOUND\n`;
+                    }
+                    
+                    // Check for common framework variables
+                    if (window.angular) {
+                        debugOutput += `Angular detected: YES\n`;
+                        try {
+                            const scope = window.angular.element(document.body).scope();
+                            if (scope && scope.accessToken) {
+                                debugOutput += `Angular scope.accessToken: ${scope.accessToken}\n`;
+                            }
+                        } catch (e) {
+                            debugOutput += `Angular scope access failed: ${e.message}\n`;
+                        }
+                    } else {
+                        debugOutput += `Angular detected: NO\n`;
+                    }
+                    
+                    if (window.Vue) {
+                        debugOutput += `Vue detected: YES\n`;
+                        try {
+                            if (window.Vue.prototype && window.Vue.prototype.$store) {
+                                const store = window.Vue.prototype.$store;
+                                if (store.state && store.state.auth) {
+                                    debugOutput += `Vue store.auth: ${JSON.stringify(store.state.auth)}\n`;
+                                }
+                            }
+                        } catch (e) {
+                            debugOutput += `Vue store access failed: ${e.message}\n`;
+                        }
+                    } else {
+                        debugOutput += `Vue detected: NO\n`;
+                    }
+                    
+                } catch (e) {
+                    debugOutput += `Error checking JavaScript variables: ${e.message}\n`;
+                }
+                
+                // 6. Check for any hidden inputs or meta tags
+                debugOutput += '\n=== HIDDEN INPUTS & META TAGS ===\n';
+                const hiddenInputs = document.querySelectorAll('input[type="hidden"]');
+                debugOutput += `Found ${hiddenInputs.length} hidden inputs:\n`;
+                
+                hiddenInputs.forEach((input, index) => {
+                    debugOutput += `\nHidden Input ${index + 1}:\n`;
+                    debugOutput += `Name: ${input.name}\n`;
+                    debugOutput += `Value: ${input.value}\n`;
+                    debugOutput += `Starts with eyJ: ${input.value && input.value.startsWith('eyJ') ? 'YES' : 'NO'}\n`;
+                    debugOutput += `---\n`;
+                });
+                
+                const metaTags = document.querySelectorAll('meta');
+                debugOutput += `\nFound ${metaTags.length} meta tags:\n`;
+                
+                metaTags.forEach((meta, index) => {
+                    if (meta.content && meta.content.includes('eyJ')) {
+                        debugOutput += `\nMeta Tag ${index + 1}:\n`;
+                        debugOutput += `Name: ${meta.name}\n`;
+                        debugOutput += `Content: ${meta.content}\n`;
+                        debugOutput += `---\n`;
+                    }
+                });
+                
+                // 7. Check for any script tags with tokens
+                debugOutput += '\n=== SCRIPT TAGS WITH TOKENS ===\n';
+                const scripts = document.querySelectorAll('script');
+                let scriptTokenCount = 0;
+                
+                scripts.forEach((script, index) => {
+                    if (script.textContent && script.textContent.includes('eyJ')) {
+                        scriptTokenCount++;
+                        debugOutput += `\nScript ${index + 1} contains JWT:\n`;
+                        const jwtPattern = /eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*/g;
+                        const matches = script.textContent.match(jwtPattern);
+                        if (matches) {
+                            matches.forEach((match, matchIndex) => {
+                                debugOutput += `Token ${matchIndex + 1}: ${match.substring(0, 50)}...\n`;
+                            });
+                        }
+                        debugOutput += `---\n`;
+                    }
+                });
+                
+                if (scriptTokenCount === 0) {
+                    debugOutput += 'No script tags contain JWT tokens\n';
+                }
+                
+                // Show the complete debug output
+                showDebugResults(debugOutput);
+                
+            } catch (error) {
+                showDebugResults(`❌ Error during debugging: ${error.message}`);
+            }
+        }
+        
+        function showDebugResults(content) {
+            const resultsDiv = document.getElementById('debug-results');
+            
+            let html = '<div class="debug-section">';
+            html += '<div class="debug-title">🔍 Complete Browser Storage Debug</div>';
+            html += '<div class="debug-content">' + content + '</div>';
+            html += '</div>';
+            
+            // Add analysis
+            html += '<div class="warning">';
+            html += '<h3>🔍 Analysis:</h3>';
+            html += '<p>Look through the debug output above for:</p>';
+            html += '<ul>';
+            html += '<li><strong>Any strings starting with "eyJ"</strong> - these are likely JWT tokens</li>';
+            html += '<li><strong>Long strings</strong> (100+ characters) that might be tokens</li>';
+            html += '<li><strong>Authentication-related keys</strong> in localStorage/sessionStorage</li>';
+            html += '<li><strong>Hidden form fields</strong> that might contain tokens</li>';
+            html += '</ul>';
+            html += '<p>If you find a JWT token, copy it and use it in your app!</p>';
+            html += '</div>';
+            
+            resultsDiv.innerHTML = html;
+        }
+        
+        function clearDebug() {
+            document.getElementById('debug-results').innerHTML = '';
+        }
+        
+        // Auto-debug when page loads (if we're on Savanna)
+        window.addEventListener('load', function() {
+            if (window.location.hostname.includes('savanna.fyber.com')) {
+                console.log("Auto-debugging Savanna page...");
+                setTimeout(debugBrowserStorage, 2000); // Wait for page to fully load
+            }
+        });
+    </script>
+</body>
+</html>
+

@@ -13,6 +13,12 @@ __pycache__/
 *.app
 *.dmg
 
+# macOS app bundles and large files
+Creative_Pull_App_macOS_v4/Creative_Pull_App_macOS
+Creative_Pull_App_macOS_v4/Launch_App.sh
+*.app/Contents/MacOS/*
+*.app/Contents/Frameworks/*
+
 # Temporary files
 *.tmp
 *.temp
@@ -49,3 +55,4 @@ ENV/
 # Databricks credentials (security)
 config.ini
 .env
+node_modules

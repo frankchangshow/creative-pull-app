@@ -9,9 +9,10 @@ import os
 import json
 import tempfile
 import webbrowser
+import time
 from datetime import datetime, timedelta, timezone
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+from tkinter import ttk, messagebox, scrolledtext, filedialog
 import threading
 # import webview  # Removed due to threading issues on macOS
 from databricks import sql
@@ -21,6 +22,9 @@ import configparser
 import html
 import re
 import requests
+
+# Import the Savanna bearer client for save functionality
+from savanna_bearer_client import SavannaBearerClient
 
 # Configuration
 DATABRICKS_SERVER_HOSTNAME = "3218046436603353.3.gcp.databricks.com"
@@ -41,6 +45,14 @@ class CreativePreviewerApp:
         self.current_creative = None
         self.current_markup = None
         self.access_token = self.load_configuration()
+        
+        # Initialize Savanna client
+        try:
+            from savanna_bearer_client import SavannaBearerClient
+            self.savanna_client = SavannaBearerClient()
+        except Exception as e:
+            print(f"⚠️ Warning: Could not initialize Savanna client: {e}")
+            self.savanna_client = None
         
         # Job monitoring variables
         self.current_run_id = None
@@ -73,9 +85,17 @@ class CreativePreviewerApp:
         self.create_right_panel(right_frame)
     
     def create_left_panel(self, parent):
-        # Title
-        title_label = ttk.Label(parent, text="Creative Pull App", font=("Arial", 18, "bold"))
-        title_label.pack(pady=(0, 20))
+        # Title and Settings row
+        title_frame = ttk.Frame(parent)
+        title_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        # Title on the left
+        title_label = ttk.Label(title_frame, text="Creative Pull App", font=("Arial", 18, "bold"))
+        title_label.pack(side=tk.LEFT)
+        
+        # Settings button on the right
+        self.settings_button = ttk.Button(title_frame, text="⚙️ Settings", command=self.show_settings, width=12)
+        self.settings_button.pack(side=tk.RIGHT)
         
         # Advanced Features Section (Collapsible)
         self.create_advanced_features_section(parent)
@@ -129,8 +149,8 @@ class CreativePreviewerApp:
         # Job Runner Section
         self.create_job_runner_section(self.advanced_features_container)
         
-        # Creative ID Search Section
-        self.create_creative_search_section(self.advanced_features_container)
+        # Unified Savanna Creative Manager Section
+        self.create_unified_savanna_section(self.advanced_features_container)
     
     def toggle_advanced_features(self):
         """Toggle the visibility of advanced features"""
@@ -220,33 +240,555 @@ class CreativePreviewerApp:
         self.job_status_label = ttk.Label(status_frame, text="Ready to run job", font=("Arial", 10), wraplength=400, justify=tk.LEFT)
         self.job_status_label.pack(fill=tk.X, pady=(5, 0))
     
-    def create_creative_search_section(self, parent):
-        """Create the creative ID search section"""
-        # Creative Search Frame
-        search_frame = ttk.LabelFrame(parent, text="🔍 Creative Submitted in Savanna")
-        search_frame.pack(fill=tk.X, pady=(0, 10), padx=5)
+    def create_unified_savanna_section(self, parent):
+        """Create the unified Savanna Creative Manager section"""
+        # Unified Savanna Frame
+        savanna_frame = ttk.LabelFrame(parent, text="🎯 Savanna Creative Manager")
+        savanna_frame.pack(fill=tk.X, pady=(0, 10), padx=5)
         
-        # Creative ID Input
-        id_frame = ttk.Frame(search_frame)
-        id_frame.pack(fill=tk.X, padx=5, pady=5)
+        # Mode Selection Frame
+        mode_frame = ttk.Frame(savanna_frame)
+        mode_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        ttk.Label(id_frame, text="Creative ID:").pack(side=tk.LEFT)
-        self.creative_id_var = tk.StringVar()
-        self.creative_id_entry = ttk.Entry(id_frame, textvariable=self.creative_id_var, width=25)
-        self.creative_id_entry.pack(side=tk.LEFT, padx=(5, 5))
+        # Mode Toggle
+        ttk.Label(mode_frame, text="Mode:").pack(side=tk.LEFT)
+        self.savanna_mode_var = tk.StringVar(value="search")
         
-        self.search_creative_button = ttk.Button(id_frame, text="🔍 Search", command=self.search_creative_id)
-        self.search_creative_button.pack(side=tk.LEFT, padx=2)
+        search_radio = ttk.Radiobutton(mode_frame, text="🔍 Search Mode", variable=self.savanna_mode_var, 
+                                     value="search", command=self.on_mode_change)
+        search_radio.pack(side=tk.LEFT, padx=(10, 5))
         
-        # Results Display - Made bigger
-        results_frame = ttk.Frame(search_frame)
+        save_radio = ttk.Radiobutton(mode_frame, text="💾 Save Mode", variable=self.savanna_mode_var, 
+                                   value="save", command=self.on_mode_change)
+        save_radio.pack(side=tk.LEFT, padx=5)
+        
+        # Input Fields Frame
+        input_frame = ttk.Frame(savanna_frame)
+        input_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Creative ID Input (always visible)
+        ttk.Label(input_frame, text="Creative ID:").pack(anchor=tk.W)
+        self.unified_creative_id_var = tk.StringVar()
+        self.unified_creative_id_entry = ttk.Entry(input_frame, textvariable=self.unified_creative_id_var, width=25)
+        self.unified_creative_id_entry.pack(anchor=tk.W, pady=(2, 10))
+        
+        # Ad Network ID Input (only visible in save mode)
+        self.ad_network_frame = ttk.Frame(input_frame)
+        self.ad_network_frame.pack(anchor=tk.W, pady=(0, 10))
+        
+        ttk.Label(self.ad_network_frame, text="Ad Network ID:").pack(anchor=tk.W)
+        self.unified_ad_network_id_var = tk.StringVar()
+        self.unified_ad_network_id_entry = ttk.Entry(self.ad_network_frame, textvariable=self.unified_ad_network_id_var, width=25)
+        self.unified_ad_network_id_entry.pack(anchor=tk.W, pady=(2, 5))
+        
+        # Network Dropdown (only visible in save mode)
+        ttk.Label(self.ad_network_frame, text="Or select from networks:").pack(anchor=tk.W)
+        
+        # Network dropdown with search functionality
+        self.network_dropdown_var = tk.StringVar()
+        self.network_dropdown = ttk.Combobox(self.ad_network_frame, textvariable=self.network_dropdown_var, width=25, state="normal")
+        self.network_dropdown.pack(anchor=tk.W, pady=(2, 5))
+        self.network_dropdown.bind('<KeyRelease>', self.on_network_search_change)
+        self.network_dropdown.bind('<<ComboboxSelected>>', self.on_network_selected)
+        
+        # Network search status
+        self.network_status_label = ttk.Label(self.ad_network_frame, text="Type to search networks or enter ID manually", font=("Arial", 8), foreground="gray")
+        self.network_status_label.pack(anchor=tk.W, pady=(0, 5))
+        
+        # Action Button Frame
+        button_frame = ttk.Frame(savanna_frame)
+        button_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Smart Action Button
+        self.unified_action_button = ttk.Button(button_frame, text="🔍 Search", command=self.unified_savanna_action, style="Accent.TButton")
+        self.unified_action_button.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Clear Button
+        self.clear_button = ttk.Button(button_frame, text="🗑️ Clear", command=self.clear_unified_fields)
+        self.clear_button.pack(side=tk.LEFT, padx=2)
+        
+        # Info Frame
+        info_frame = ttk.Frame(savanna_frame)
+        info_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.info_label = ttk.Label(info_frame, text="🔍 Search Mode: Check if a creative exists in the pulling queue", 
+                                  font=("Arial", 9), foreground="gray")
+        self.info_label.pack(anchor=tk.W)
+        
+        # Unified Results Display
+        results_frame = ttk.Frame(savanna_frame)
         results_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        self.creative_search_results = scrolledtext.ScrolledText(results_frame, height=6, font=("Arial", 12))
-        self.creative_search_results.pack(fill=tk.BOTH, expand=True)
-        self.creative_search_results.insert(tk.END, "Enter a Creative ID and click Search to check if it's in the pulling queue...")
-        self.creative_search_results.config(state=tk.DISABLED)
+        self.unified_results = scrolledtext.ScrolledText(results_frame, height=6, font=("Arial", 11))
+        self.unified_results.pack(fill=tk.BOTH, expand=True)
+        self.unified_results.insert(tk.END, "🎯 Select a mode and enter Creative ID to get started...")
+        self.unified_results.config(state=tk.DISABLED)
+        
+        # Initialize mode and add flag for initial network loading
+        self.networks_loaded = False
+        self.on_mode_change()
     
+    def on_mode_change(self):
+        """Handle mode change between search and save"""
+        mode = self.savanna_mode_var.get()
+        
+        if mode == "search":
+            # Hide Ad Network ID field
+            self.ad_network_frame.pack_forget()
+            # Update button and info
+            self.unified_action_button.config(text="🔍 Search")
+            self.info_label.config(text="🔍 Search Mode: Check if a creative exists in the pulling queue")
+            # Clear Ad Network ID field
+            self.unified_ad_network_id_var.set("")
+        else:  # save mode
+            # Show Ad Network ID field
+            self.ad_network_frame.pack(anchor=tk.W, pady=(0, 10))
+            # Update button and info
+            self.unified_action_button.config(text="🚀 Submit")
+            self.info_label.config(text="💾 Save Mode: Add a new creative to the pulling queue (auto-fills: Creation Date, Expire Date, Active)")
+            # Load initial networks for the dropdown
+            self._load_initial_networks()
+    
+    def unified_savanna_action(self):
+        """Unified action handler for both search and save modes"""
+        mode = self.savanna_mode_var.get()
+        
+        if mode == "search":
+            self.unified_search_creative()
+        else:
+            self.unified_save_creative()
+    
+    def unified_search_creative(self):
+        """Search for creative in Savanna database"""
+        creative_id = self.unified_creative_id_var.get().strip()
+        
+        if not creative_id:
+            messagebox.showwarning("Warning", "Please enter a Creative ID")
+            return
+        
+        # Disable button and show status
+        self.unified_action_button.config(state='disabled')
+        self.unified_results.config(state=tk.NORMAL)
+        self.unified_results.delete(1.0, tk.END)
+        self.unified_results.insert(tk.END, f"🔍 Searching for Creative ID: {creative_id}...")
+        self.unified_results.config(state=tk.DISABLED)
+        self.root.update()
+        
+        # Search in background thread
+        threading.Thread(target=self._unified_search_thread, args=(creative_id,), daemon=True).start()
+    
+    def unified_save_creative(self):
+        """Save creative to Savanna database"""
+        creative_id = self.unified_creative_id_var.get().strip()
+        ad_network_id = self.unified_ad_network_id_var.get().strip()
+        
+        if not creative_id:
+            messagebox.showwarning("Warning", "Please enter a Creative ID")
+            return
+        
+        if not ad_network_id:
+            messagebox.showwarning("Warning", "Please enter an Ad Network ID")
+            return
+        
+        # Validate ad_network_id is a number
+        try:
+            int(ad_network_id)
+        except ValueError:
+            messagebox.showwarning("Warning", "Ad Network ID must be a number")
+            return
+        
+        # Disable button and show status
+        self.unified_action_button.config(state='disabled')
+        self.unified_results.config(state=tk.NORMAL)
+        self.unified_results.delete(1.0, tk.END)
+        self.unified_results.insert(tk.END, f"🚀 Submitting Creative ID: {creative_id} to Savanna...")
+        self.unified_results.config(state=tk.DISABLED)
+        self.root.update()
+        
+        # Save in background thread
+        threading.Thread(target=self._unified_save_thread, args=(creative_id, ad_network_id), daemon=True).start()
+    
+    def clear_unified_fields(self):
+        """Clear all input fields"""
+        self.unified_creative_id_var.set("")
+        self.unified_ad_network_id_var.set("")
+        self.network_dropdown_var.set("")
+        self.unified_results.config(state=tk.NORMAL)
+        self.unified_results.delete(1.0, tk.END)
+        self.unified_results.insert(tk.END, "🎯 Select a mode and enter Creative ID to get started...")
+        self.unified_results.config(state=tk.DISABLED)
+        
+        # Reload initial networks if in save mode
+        if self.savanna_mode_var.get() == "save":
+            self._load_initial_networks()
+    
+    def on_network_search_change(self, event=None):
+        """Handle network search input changes with delay to prevent rapid searching"""
+        # Cancel any existing timer
+        if hasattr(self, '_search_timer'):
+            self.root.after_cancel(self._search_timer)
+        
+        search_term = self.network_dropdown_var.get().strip()
+        
+        # Don't do anything if user is still typing
+        if len(search_term) < 2:
+            # Just update status, don't load networks
+            self.network_status_label.config(text="Type at least 2 characters to search...")
+            return
+        
+        # Update status
+        self.network_status_label.config(text=f"🔍 Searching for networks containing '{search_term}'...")
+        
+        # Set a timer to search after user stops typing (1000ms delay - increased for better UX)
+        self._search_timer = self.root.after(1000, lambda: self._search_networks_thread(search_term))
+    
+    def _load_initial_networks(self):
+        """Load initial list of networks when dropdown is first shown"""
+        # Only load if we haven't already loaded networks
+        if not self.networks_loaded:
+            self.network_status_label.config(text="Loading initial networks...")
+            threading.Thread(target=self._search_networks_thread, args=("", True), daemon=True).start()
+        else:
+            # Networks already loaded, just update status
+            self.network_status_label.config(text=f"Loaded {len(self.network_dropdown['values'])} networks")
+    
+    def _search_networks_thread(self, search_term, is_initial_load=False):
+        """Search for networks in background thread"""
+        try:
+            # Use the existing Savanna client instance
+            if not self.savanna_client:
+                print("❌ Savanna client not available")
+                return
+            
+            savanna_client = self.savanna_client
+            
+            # Make API call to search networks - using the exact format from HAR file
+            url = "https://savanna.fyber.com/ad-networks"
+            
+            if is_initial_load:
+                # For initial load, get first 25 networks without search filter
+                params = {
+                    "$limit": "25",
+                    "$skip": "0", 
+                    "$sort[id]": "-1"
+                }
+                print(f"🔍 Loading initial networks with params: {params}")
+            else:
+                # For search, add the name filter
+                params = {
+                    "$limit": "25",
+                    "$skip": "0", 
+                    "$sort[id]": "-1",
+                    "name[$like]": f"%{search_term}%"
+                }
+                print(f"🔍 Searching networks with params: {params}")
+            
+            response = savanna_client.session.get(url, params=params, timeout=15)
+            
+            print(f"📡 API Response Status: {response.status_code}")
+            
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    networks = data.get('data', [])
+                    print(f"📡 Found {len(networks)} networks")
+                    
+                    if networks:
+                        # Extract network names and IDs
+                        network_options = []
+                        self.network_id_map = {}  # Store mapping of names to IDs
+                        
+                        for network in networks:
+                            name = network.get('name', '')
+                            network_id = network.get('id', '')
+                            if name and network_id:
+                                network_options.append(name)
+                                self.network_id_map[name] = network_id
+                                print(f"📡 Network: {name} (ID: {network_id})")
+                        
+                        # Update UI in main thread
+                        if is_initial_load:
+                            self.root.after(0, lambda: self._network_search_completed(network_options, f"Loaded {len(networks)} networks"))
+                        else:
+                            self.root.after(0, lambda: self._network_search_completed(network_options, f"Found {len(networks)} networks"))
+                    else:
+                        self.root.after(0, lambda: self._network_search_completed([], "No networks found"))
+                        
+                except Exception as json_error:
+                    print(f"❌ JSON parsing error: {json_error}")
+                    self.root.after(0, lambda: self._network_search_completed([], f"JSON parsing error: {json_error}"))
+            else:
+                error_msg = f"Search failed: {response.status_code}"
+                print(f"❌ {error_msg}")
+                self.root.after(0, lambda: self._network_search_completed([], error_msg))
+                
+        except Exception as e:
+            error_msg = f"Search error: {str(e)}"
+            print(f"❌ {error_msg}")
+            self.root.after(0, lambda: self._network_search_completed([], error_msg))
+    
+    def _network_search_completed(self, network_options, status_message):
+        """Handle completed network search"""
+        self.network_dropdown['values'] = network_options
+        self.network_status_label.config(text=status_message)
+        
+        if network_options:
+            self.network_dropdown.set("")  # Clear selection
+            # Mark networks as loaded
+            self.networks_loaded = True
+        else:
+            self.network_dropdown_var.set("")
+    
+    def on_network_selected(self, event=None):
+        """Handle network selection from dropdown"""
+        selected_network = self.network_dropdown_var.get()
+        
+        if selected_network and hasattr(self, 'network_id_map'):
+            network_id = self.network_id_map.get(selected_network)
+            if network_id:
+                # Auto-populate the Ad Network ID field
+                self.unified_ad_network_id_var.set(str(network_id))
+                self.network_status_label.config(text=f"✅ Selected: {selected_network} (ID: {network_id})")
+            else:
+                self.network_status_label.config(text="❌ Error: Could not get network ID")
+        else:
+            self.network_status_label.config(text="Please select a network from the dropdown")
+    
+    def _unified_search_thread(self, creative_id):
+        """Search for creative ID in background thread"""
+        try:
+            # Databricks connection
+            connection_params = {
+                "server_hostname": DATABRICKS_SERVER_HOSTNAME,
+                "http_path": DATABRICKS_HTTP_PATH,
+                "access_token": self.access_token
+            }
+            
+            with sql.connect(**connection_params) as connection:
+                with connection.cursor() as cursor:
+                    # Query creative_pulling table for the specific creative_id
+                    query = f"""
+                    SELECT 
+                        creative_id,
+                        creation_date,
+                        expire_date,
+                        active
+                    FROM {CREATIVE_PULLING_TABLE} 
+                    WHERE creative_id = '{creative_id}'
+                    ORDER BY creation_date DESC
+                    """
+                    
+                    cursor.execute(query)
+                    results = cursor.fetchall()
+                    
+                    if results:
+                        # Format results - only essential information
+                        result_text = f"✅ FOUND: Creative ID '{creative_id}' is in the pulling queue\n\n"
+                        
+                        for i, row in enumerate(results, 1):
+                            creative_id, creation_date, expire_date, active = row
+                            
+                            # Format dates
+                            creation_str = creation_date.strftime('%Y-%m-%d %H:%M:%S') if creation_date else 'N/A'
+                            expire_str = expire_date.strftime('%Y-%m-%d %H:%M:%S') if expire_date else 'N/A'
+                            
+                            result_text += f"📋 Record {i}:\n"
+                            result_text += f"   🕒 Created Time: {creation_str}\n"
+                            result_text += f"   ⏰ Expire Time: {expire_str}\n"
+                            
+                            # Check if expired and show status
+                            if expire_date:
+                                # Convert to naive datetime for comparison if needed
+                                if expire_date.tzinfo is not None:
+                                    expire_date = expire_date.replace(tzinfo=None)
+                                current_time = datetime.now().replace(tzinfo=None)
+                                
+                                if expire_date < current_time:
+                                    result_text += f"   ⚠️  Status: EXPIRED\n"
+                                elif active:
+                                    result_text += f"   ✅ Status: ACTIVE\n"
+                                else:
+                                    result_text += f"   ❌ Status: INACTIVE\n"
+                            elif active:
+                                result_text += f"   ✅ Status: ACTIVE\n"
+                            else:
+                                result_text += f"   ❌ Status: INACTIVE\n"
+                            
+                            result_text += "\n"
+                    else:
+                        result_text = f"❌ NOT FOUND: Creative ID '{creative_id}' is not in the pulling queue\n\n"
+                        result_text += "This creative ID has not been added to the pulling queue yet."
+                    
+                    # Update UI in main thread
+                    self.root.after(0, lambda: self._unified_search_completed(result_text))
+                    
+        except Exception as e:
+            error_msg = f"❌ Error searching for Creative ID: {str(e)}"
+            self.root.after(0, lambda: self._unified_search_completed(error_msg))
+    
+    def _unified_search_completed(self, result_text):
+        """Handle completed unified search"""
+        self.unified_action_button.config(state='normal')
+        self.unified_results.config(state=tk.NORMAL)
+        self.unified_results.delete(1.0, tk.END)
+        self.unified_results.insert(tk.END, result_text)
+        self.unified_results.config(state=tk.DISABLED)
+    
+    def _unified_save_thread(self, creative_id, ad_network_id):
+        """Save creative in background thread"""
+        try:
+            # Use the existing Savanna client instance
+            if not self.savanna_client:
+                self.root.after(0, lambda: self._unified_save_completed("❌ Savanna client not available", False))
+                return
+            
+            savanna_client = self.savanna_client
+            
+            # Calculate dates
+            now = datetime.now()
+            creation_date = now.strftime('%Y-%m-%d %H:%M:%S')
+            expire_date = (now + timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Prepare creative data matching the actual table schema
+            creative_data = {
+                "creative_id": creative_id,
+                "ad_network_id": int(ad_network_id),
+                "creation_date": creation_date,
+                "expire_date": expire_date,
+                "active": True
+            }
+            
+            # Save to Savanna
+            result = savanna_client.post_to_creative_pulling(creative_data)
+            
+            if result:
+                success_msg = f"✅ SUCCESS: Creative ID '{creative_id}' submitted to Savanna!\n\n"
+                success_msg += f"📋 Details:\n"
+                success_msg += f"   🆔 Creative ID: {creative_id}\n"
+                success_msg += f"   🌐 Ad Network ID: {ad_network_id}\n"
+                success_msg += f"   🕒 Creation Date: {creation_date}\n"
+                success_msg += f"   ⏰ Expire Date: {expire_date}\n"
+                success_msg += f"   ✅ Active: True\n\n"
+                success_msg += f"📡 API Response: {str(result)[:200]}..."
+                
+                self.root.after(0, lambda: self._unified_save_completed(success_msg, True))
+            else:
+                error_msg = f"❌ FAILED: Could not submit Creative ID '{creative_id}' to Savanna"
+                self.root.after(0, lambda: self._unified_save_completed(error_msg, False))
+                
+        except Exception as e:
+            error_msg = f"❌ Error submitting creative: {str(e)}"
+            self.root.after(0, lambda: self._unified_save_completed(error_msg, False))
+    
+    def _unified_save_completed(self, result_text, success):
+        """Handle completed unified save operation"""
+        self.unified_action_button.config(state='normal')
+        self.unified_results.config(state=tk.NORMAL)
+        self.unified_results.delete(1.0, tk.END)
+        self.unified_results.insert(tk.END, result_text)
+        self.unified_results.config(state=tk.DISABLED)
+        
+        # Show popup for success/failure
+        if success:
+            messagebox.showinfo("Submit Successful", f"Creative submitted successfully!")
+        else:
+            messagebox.showerror("Submit Failed", f"Failed to submit creative: {result_text}")
+        
+    def save_creative_to_savanna(self):
+        """Save creative to Savanna database"""
+        creative_id = self.save_creative_id_var.get().strip()
+        ad_network_id = self.save_ad_network_id_var.get().strip()
+        
+        if not creative_id:
+            messagebox.showwarning("Warning", "Please enter a Creative ID")
+            return
+        
+        if not ad_network_id:
+            messagebox.showwarning("Warning", "Please enter an Ad Network ID")
+            return
+        
+        # Validate ad_network_id is a number
+        try:
+            int(ad_network_id)
+        except ValueError:
+            messagebox.showwarning("Warning", "Ad Network ID must be a number")
+            return
+        
+        # Disable button and show status
+        self.save_creative_button.config(state='disabled')
+        self.save_creative_results.config(state=tk.NORMAL)
+        self.save_creative_results.delete(1.0, tk.END)
+        self.save_creative_results.insert(tk.END, f"🚀 Submitting Creative ID: {creative_id} to Savanna...")
+        self.save_creative_results.config(state=tk.DISABLED)
+        self.root.update()
+        
+        # Save in background thread
+        threading.Thread(target=self._save_creative_thread, args=(creative_id, ad_network_id), daemon=True).start()
+    
+    def _save_creative_thread(self, creative_id, ad_network_id):
+        """Save creative in background thread"""
+        try:
+            # Use the existing Savanna client instance
+            if not self.savanna_client:
+                self.save_creative_results.config(state=tk.NORMAL)
+                self.save_creative_results.delete(1.0, tk.END)
+                self.save_creative_results.insert(tk.END, "❌ Savanna client not available")
+                self.save_creative_results.config(state=tk.DISABLED)
+                self.save_creative_button.config(state='normal')
+                return
+            
+            savanna_client = self.savanna_client
+            
+            # Calculate dates
+            now = datetime.now()
+            creation_date = now.strftime('%Y-%m-%d %H:%M:%S')
+            expire_date = (now + timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Prepare creative data matching the actual table schema
+            creative_data = {
+                "creative_id": creative_id,
+                "ad_network_id": int(ad_network_id),
+                "creation_date": creation_date,
+                "expire_date": expire_date,
+                "active": True
+            }
+            
+            # Save to Savanna
+            result = savanna_client.post_to_creative_pulling(creative_data)
+            
+            if result:
+                success_msg = f"✅ SUCCESS: Creative ID '{creative_id}' submitted to Savanna!\n\n"
+                success_msg += f"📋 Details:\n"
+                success_msg += f"   🆔 Creative ID: {creative_id}\n"
+                success_msg += f"   🌐 Ad Network ID: {ad_network_id}\n"
+                success_msg += f"   🕒 Creation Date: {creation_date}\n"
+                success_msg += f"   ⏰ Expire Date: {expire_date}\n"
+                success_msg += f"   ✅ Active: True\n\n"
+                success_msg += f"📡 API Response: {str(result)[:200]}..."
+                
+                self.root.after(0, lambda: self._save_completed(success_msg, True))
+            else:
+                error_msg = f"❌ FAILED: Could not submit Creative ID '{creative_id}' to Savanna"
+                self.root.after(0, lambda: self._save_completed(error_msg, False))
+                
+        except Exception as e:
+            error_msg = f"❌ Error submitting creative: {str(e)}"
+            self.root.after(0, lambda: self._save_completed(error_msg, False))
+    
+    def _save_completed(self, result_text, success):
+        """Handle completed save operation"""
+        self.save_creative_button.config(state='normal')
+        self.save_creative_results.config(state=tk.NORMAL)
+        self.save_creative_results.delete(1.0, tk.END)
+        self.save_creative_results.insert(tk.END, result_text)
+        self.save_creative_results.config(state=tk.DISABLED)
+        
+        # Show popup for success/failure
+        if success:
+            messagebox.showinfo("Submit Successful", f"Creative submitted successfully!")
+        else:
+            messagebox.showerror("Submit Failed", f"Failed to submit creative: {result_text}")
+        
     def set_today(self):
         """Set both start and end date to today"""
         today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
@@ -629,7 +1171,10 @@ class CreativePreviewerApp:
         self.copy_markup_small_button.pack(side=tk.LEFT, padx=(0, 5))
         
         self.beautify_small_button = ttk.Button(markup_button_frame, text="🔧 Beautify", command=self.format_xml, width=8)
-        self.beautify_small_button.pack(side=tk.LEFT)
+        self.beautify_small_button.pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.download_markup_button = ttk.Button(markup_button_frame, text="💾 Download", command=self.download_markup, width=12)
+        self.download_markup_button.pack(side=tk.LEFT)
         
         self.markup_text = scrolledtext.ScrolledText(markup_frame, font=("Courier", 11))
         self.markup_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -1759,6 +2304,196 @@ Raw Size: {self.selected_creative['size']}"""
         else:
             messagebox.showwarning("Warning", "No markup to copy!")
     
+    def download_markup(self):
+        """Download markup to a local text file"""
+        if not self.current_markup:
+            messagebox.showwarning("Warning", "No markup to download!")
+            return
+        
+        try:
+            from tkinter import filedialog
+            import os
+            from datetime import datetime
+            
+            # Generate default filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            default_filename = f"creative_markup_{timestamp}.txt"
+            
+            # Open file dialog for save location
+            file_path = filedialog.asksaveasfilename(
+                title="Save Creative Markup",
+                defaultextension=".txt",
+                filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+                initialfile=default_filename
+            )
+            
+            if file_path:
+                # Write markup to file
+                with open(file_path, 'w', encoding='utf-8') as file:
+                    file.write(self.current_markup)
+                
+                # Show success message
+                messagebox.showinfo(
+                    "Success", 
+                    f"Markup saved successfully!\n\nFile: {os.path.basename(file_path)}\nLocation: {os.path.dirname(file_path)}"
+                )
+                
+                print(f"✅ Markup downloaded to: {file_path}")
+                
+        except Exception as e:
+            error_msg = f"Failed to download markup: {str(e)}"
+            messagebox.showerror("Error", error_msg)
+            print(f"❌ {error_msg}")
+    
+    def show_settings(self):
+        """Show settings dialog for bearer token management"""
+        # Create settings window
+        settings_window = tk.Toplevel(self.root)
+        settings_window.title("Settings - Bearer Token Management")
+        settings_window.geometry("600x400")
+        settings_window.resizable(False, False)
+        settings_window.transient(self.root)
+        settings_window.grab_set()
+        
+        # Center the window
+        settings_window.update_idletasks()
+        x = (settings_window.winfo_screenwidth() // 2) - (600 // 2)
+        y = (settings_window.winfo_screenheight() // 2) - (400 // 2)
+        settings_window.geometry(f"600x400+{x}+{y}")
+        
+        # Main frame
+        main_frame = ttk.Frame(settings_window, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        title_label = ttk.Label(main_frame, text="🔐 Bearer Token Settings", font=("Arial", 16, "bold"))
+        title_label.pack(pady=(0, 20))
+        
+        # Current token info frame
+        current_frame = ttk.LabelFrame(main_frame, text="Current Token Information", padding="15")
+        current_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        # Load current token info
+        try:
+            # Use the existing SavannaBearerClient instance if available, or create a new one
+            if hasattr(self, 'savanna_client') and self.savanna_client:
+                client = self.savanna_client
+            else:
+                from savanna_bearer_client import SavannaBearerClient
+                client = SavannaBearerClient()
+            
+            token_info = client.get_token_info()
+            
+            # Display current token details
+            ttk.Label(current_frame, text=f"Status: {'✅ Valid' if token_info['valid'] else '❌ Expired'}", 
+                     font=("Arial", 12, "bold")).pack(anchor=tk.W, pady=(0, 5))
+            
+            if token_info['valid']:
+                ttk.Label(current_frame, text=f"Expires: {token_info['expires_at']}", 
+                         font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
+                ttk.Label(current_frame, text=f"Time Remaining: {token_info['time_remaining']}", 
+                         font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
+                ttk.Label(current_frame, text=f"User: {token_info['user']}", 
+                         font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
+                ttk.Label(current_frame, text=f"Roles: {', '.join(token_info['roles'])}", 
+                         font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
+            else:
+                ttk.Label(current_frame, text="Token has expired and needs to be updated", 
+                         font=("Arial", 10), foreground="red").pack(anchor=tk.W, pady=(0, 5))
+                
+        except Exception as e:
+            ttk.Label(current_frame, text=f"Error loading token info: {str(e)}", 
+                     font=("Arial", 10), foreground="red").pack(anchor=tk.W, pady=(0, 5))
+        
+        # Update token frame
+        update_frame = ttk.LabelFrame(main_frame, text="Update Bearer Token", padding="15")
+        update_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        ttk.Label(update_frame, text="Enter new bearer token:").pack(anchor=tk.W, pady=(0, 5))
+        
+        # Token input
+        token_var = tk.StringVar()
+        token_entry = ttk.Entry(update_frame, textvariable=token_var, width=60, show="*")
+        token_entry.pack(fill=tk.X, pady=(0, 10))
+        
+        # Buttons frame
+        button_frame = ttk.Frame(update_frame)
+        button_frame.pack(fill=tk.X)
+        
+        def update_token():
+            """Update the bearer token"""
+            new_token = token_var.get().strip()
+            if not new_token:
+                messagebox.showwarning("Warning", "Please enter a bearer token")
+                return
+            
+            try:
+                # Update config.ini
+                config = configparser.ConfigParser()
+                config.read('config.ini')
+                
+                if 'SAVANNA' not in config:
+                    config.add_section('SAVANNA')
+                
+                config['SAVANNA']['bearer_token'] = new_token
+                
+                with open('config.ini', 'w') as configfile:
+                    config.write(configfile)
+                
+                messagebox.showinfo("Success", "Bearer token updated successfully!\n\nPlease restart the app for changes to take effect.")
+                settings_window.destroy()
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to update token: {str(e)}")
+        
+        def test_token():
+            """Test the new token"""
+            new_token = token_var.get().strip()
+            if not new_token:
+                messagebox.showwarning("Warning", "Please enter a bearer token")
+                return
+            
+            try:
+                # Test the token
+                from savanna_bearer_client import SavannaBearerClient
+                test_client = SavannaBearerClient()
+                test_client.bearer_token = new_token
+                
+                # Test API call
+                response = test_client.session.get("https://savanna.fyber.com/ad-networks", 
+                                                params={"$limit": "1"}, timeout=10)
+                
+                if response.status_code == 200:
+                    messagebox.showinfo("Success", "✅ Token is valid!\n\nYou can now save it using the 'Update Token' button.")
+                else:
+                    messagebox.showerror("Error", f"❌ Token test failed: {response.status_code}\n\nPlease check your token and try again.")
+                    
+            except Exception as e:
+                messagebox.showerror("Error", f"❌ Token test failed: {str(e)}\n\nPlease check your token and try again.")
+        
+        # Test and Update buttons
+        ttk.Button(button_frame, text="🧪 Test Token", command=test_token, width=15).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="💾 Update Token", command=update_token, width=15).pack(side=tk.LEFT)
+        
+        # Instructions
+        instructions_frame = ttk.LabelFrame(main_frame, text="Instructions", padding="15")
+        instructions_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        instructions_text = """1. Copy your new bearer token from Savanna
+2. Paste it in the input field above
+3. Click "Test Token" to verify it works
+4. Click "Update Token" to save it
+5. Restart the app for changes to take effect
+
+💡 Tip: You can get a new token by logging into Savanna and checking the network requests in your browser's developer tools."""
+        
+        instructions_label = ttk.Label(instructions_frame, text=instructions_text, 
+                                     font=("Arial", 9), justify=tk.LEFT)
+        instructions_label.pack(anchor=tk.W)
+        
+        # Close button
+        ttk.Button(main_frame, text="Close", command=settings_window.destroy, width=15).pack(pady=(20, 0))
+    
     def format_xml(self):
         """Format XML markup in the text area"""
         if not self.current_markup:
@@ -1857,118 +2592,39 @@ Raw Size: {self.selected_creative['size']}"""
         
         return '\n'.join(result)
 
-    def search_creative_id(self):
-        """Search for a creative ID in the creative pulling database"""
-        creative_id = self.creative_id_var.get().strip()
-        
-        if not creative_id:
-            messagebox.showwarning("Warning", "Please enter a Creative ID")
-            return
-        
-        # Disable button and show status
-        self.search_creative_button.config(state='disabled')
-        self.creative_search_results.config(state=tk.NORMAL)
-        self.creative_search_results.delete(1.0, tk.END)
-        self.creative_search_results.insert(tk.END, f"🔍 Searching for Creative ID: {creative_id}...")
-        self.creative_search_results.config(state=tk.DISABLED)
-        self.root.update()
-        
-        # Search in background thread
-        threading.Thread(target=self._search_creative_id_thread, args=(creative_id,), daemon=True).start()
-    
-    def _search_creative_id_thread(self, creative_id):
-        """Search for creative ID in background thread"""
-        try:
-            # Databricks connection
-            connection_params = {
-                "server_hostname": DATABRICKS_SERVER_HOSTNAME,
-                "http_path": DATABRICKS_HTTP_PATH,
-                "access_token": self.access_token
-            }
-            
-            with sql.connect(**connection_params) as connection:
-                with connection.cursor() as cursor:
-                    # Query creative_pulling table for the specific creative_id
-                    query = f"""
-                    SELECT 
-                        creative_id,
-                        creation_date,
-                        expire_date,
-                        active
-                    FROM {CREATIVE_PULLING_TABLE} 
-                    WHERE creative_id = '{creative_id}'
-                    ORDER BY creation_date DESC
-                    """
-                    
-                    cursor.execute(query)
-                    results = cursor.fetchall()
-                    
-                    if results:
-                        # Format results - only essential information
-                        result_text = f"✅ FOUND: Creative ID '{creative_id}' is in the pulling queue\n\n"
-                        
-                        for i, row in enumerate(results, 1):
-                            creative_id, creation_date, expire_date, active = row
-                            
-                            # Format dates
-                            creation_str = creation_date.strftime('%Y-%m-%d %H:%M:%S') if creation_date else 'N/A'
-                            expire_str = expire_date.strftime('%Y-%m-%d %H:%M:%S') if expire_date else 'N/A'
-                            
-                            result_text += f"📋 Record {i}:\n"
-                            result_text += f"   🕒 Created Time: {creation_str}\n"
-                            result_text += f"   ⏰ Expire Time: {expire_str}\n"
-                            
-                            # Check if expired and show status
-                            if expire_date:
-                                # Convert to naive datetime for comparison if needed
-                                if expire_date.tzinfo is not None:
-                                    expire_date = expire_date.replace(tzinfo=None)
-                                current_time = datetime.now().replace(tzinfo=None)
-                                
-                                if expire_date < current_time:
-                                    result_text += f"   ⚠️  Status: EXPIRED\n"
-                                elif active:
-                                    result_text += f"   ✅ Status: ACTIVE\n"
-                                else:
-                                    result_text += f"   ❌ Status: INACTIVE\n"
-                            elif active:
-                                result_text += f"   ✅ Status: ACTIVE\n"
-                            else:
-                                result_text += f"   ❌ Status: INACTIVE\n"
-                            
-                            result_text += "\n"
-                    else:
-                        result_text = f"❌ NOT FOUND: Creative ID '{creative_id}' is not in the pulling queue\n\n"
-                        result_text += "This creative ID has not been added to the pulling queue yet."
-                    
-                    # Update UI in main thread
-                    self.root.after(0, lambda: self._search_completed(result_text))
-                    
-        except Exception as e:
-            error_msg = f"❌ Error searching for Creative ID: {str(e)}"
-            self.root.after(0, lambda: self._search_completed(error_msg))
-    
-    def _search_completed(self, result_text):
-        """Handle completed search"""
-        self.search_creative_button.config(state='normal')
-        self.creative_search_results.config(state=tk.NORMAL)
-        self.creative_search_results.delete(1.0, tk.END)
-        self.creative_search_results.insert(tk.END, result_text)
-        self.creative_search_results.config(state=tk.DISABLED)
+
         
     def load_configuration(self):
-        """Load Databricks access token - hardcoded with fallback dialog"""
-        # Hardcoded token - update this with your current token
-        # No hardcoded tokens
-        
+        """Load Databricks access token from config file or prompt user"""
         try:
-            # First, try to load from config file
-            if os.path.exists("config.ini"):
-                print("✅ Using hardcoded token")
-                # return hardcoded_token.strip()  # Commented out hardcoded token
+            # First, try to load from config file - check multiple locations
+            config = configparser.ConfigParser()
+            config_paths = [
+                "config.ini",  # Current directory
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.ini"),  # Script directory
+                os.path.join(os.path.expanduser("~"), ".creative_pull_app", "config.ini"),  # User home directory
+                os.path.join(os.getcwd(), "config.ini")  # Working directory
+            ]
             
-            # If hardcoded token is not set or invalid, prompt user
-            print("⚠️ Hardcoded token not set or invalid, prompting user...")
+            for config_path in config_paths:
+                print(f"🔍 Checking for config at: {config_path}")
+                if os.path.exists(config_path):
+                    print(f"✅ Found config file at: {config_path}")
+                    config.read(config_path)
+                    if config.has_section("DATABRICKS") and config.has_option("DATABRICKS", "access_token"):
+                        saved_token = config.get("DATABRICKS", "access_token")
+                        if saved_token and saved_token.startswith("dapi") and len(saved_token.strip()) > 20:
+                            print("✅ Using saved token from config.ini")
+                            return saved_token.strip()
+                        else:
+                            print(f"⚠️ Token in config is invalid: {saved_token[:10]}...")
+                    else:
+                        print("⚠️ Config file exists but no valid DATABRICKS section found")
+                else:
+                    print(f"❌ Config not found at: {config_path}")
+            
+            # If no valid token in config, prompt user
+            print("⚠️ No valid token found, prompting user...")
             token = self.prompt_for_token()
             if token:
                 print("✅ Token provided by user")
@@ -2017,9 +2673,21 @@ Raw Size: {self.selected_creative['size']}"""
         try:
             config = configparser.ConfigParser()
             
-            # Read existing config if it exists
-            if os.path.exists('config.ini'):
-                config.read('config.ini')
+            # Try to read existing config from multiple locations
+            config_read = False
+            config_paths = [
+                "config.ini",  # Current directory
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.ini"),  # Script directory
+                os.path.join(os.path.expanduser("~"), ".creative_pull_app", "config.ini"),  # User home directory
+                os.path.join(os.getcwd(), "config.ini")  # Working directory
+            ]
+            
+            for config_path in config_paths:
+                if os.path.exists(config_path):
+                    config.read(config_path)
+                    config_read = True
+                    print(f"✅ Reading existing config from: {config_path}")
+                    break
             
             # Add/update DATABRICKS section
             if not config.has_section('DATABRICKS'):
@@ -2032,11 +2700,31 @@ Raw Size: {self.selected_creative['size']}"""
                 config.add_section('APP')
                 config.set('APP', 'version', '1.0.0')
             
-            # Write to file
-            with open('config.ini', 'w') as configfile:
-                config.write(configfile)
+            # Try to save to multiple locations, prefer user home directory
+            save_paths = [
+                os.path.join(os.path.expanduser("~"), ".creative_pull_app", "config.ini"),  # User home (preferred)
+                "config.ini",  # Current directory
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.ini"),  # Script directory
+            ]
             
-            print("✅ Token saved to config.ini")
+            saved = False
+            for save_path in save_paths:
+                try:
+                    # Create directory if it doesn't exist
+                    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                    
+                    with open(save_path, 'w') as configfile:
+                        config.write(configfile)
+                    
+                    print(f"✅ Token saved to: {save_path}")
+                    saved = True
+                    break
+                except Exception as e:
+                    print(f"⚠️ Could not save to {save_path}: {e}")
+                    continue
+            
+            if not saved:
+                print("❌ Warning: Could not save token to any location")
             
         except Exception as e:
             print(f"⚠️ Warning: Could not save token to config.ini: {e}")

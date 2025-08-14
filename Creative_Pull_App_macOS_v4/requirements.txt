@@ -1,0 +1,4 @@
+databricks-sql
+requests
+pyinstaller
+tkinter

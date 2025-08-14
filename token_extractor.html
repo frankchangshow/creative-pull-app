@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Savanna Token Extractor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .button {
+            background: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        .button:hover {
+            background: #0056b3;
+        }
+        .result {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 15px 0;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .success {
+            background: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+        .warning {
+            background: #fff3cd;
+            border-color: #ffeaa7;
+            color: #856404;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .instructions {
+            background: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Savanna Token Extractor</h1>
+        
+        <div class="instructions">
+            <h3>📋 Instructions:</h3>
+            <ol>
+                <li><strong>Keep this tab open</strong> while you work</li>
+                <li><strong>Open Savanna in another tab</strong> and log in</li>
+                <li><strong>Come back here</strong> and click "Extract Token"</li>
+                <li><strong>Copy the token</strong> when it appears</li>
+            </ol>
+        </div>
+
+        <div style="text-align: center;">
+            <button class="button" onclick="extractToken()">🔍 Extract Token</button>
+            <button class="button" onclick="clearResults()">🗑️ Clear Results</button>
+        </div>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        function extractToken() {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<div class="result">🔍 Searching for tokens...</div>';
+            
+            try {
+                // Method 1: Check localStorage
+                console.log("Checking localStorage...");
+                let token = checkLocalStorage();
+                if (token) {
+                    showResult("✅ Token found in localStorage!", token, 'success');
+                    return;
+                }
+                
+                // Method 2: Check sessionStorage
+                console.log("Checking sessionStorage...");
+                token = checkSessionStorage();
+                if (token) {
+                    showResult("✅ Token found in sessionStorage!", token, 'success');
+                    return;
+                }
+                
+                // Method 3: Check cookies
+                console.log("Checking cookies...");
+                token = checkCookies();
+                if (token) {
+                    showResult("✅ Token found in cookies!", token, 'success');
+                    return;
+                }
+                
+                // Method 4: Check page content
+                console.log("Checking page content...");
+                token = checkPageContent();
+                if (token) {
+                    showResult("✅ Token found in page content!", token, 'success');
+                    return;
+                }
+                
+                // Method 5: Check JavaScript variables
+                console.log("Checking JavaScript variables...");
+                token = checkJavaScriptVariables();
+                if (token) {
+                    showResult("✅ Token found in JavaScript variables!", token, 'success');
+                    return;
+                }
+                
+                showResult("❌ No JWT token found", 
+                    "The token extractor couldn't find a JWT token in your browser.\n\n" +
+                    "💡 Try these steps:\n" +
+                    "1. Make sure you're logged into Savanna\n" +
+                    "2. Refresh the Savanna page\n" +
+                    "3. Navigate to a different page and back\n" +
+                    "4. Check if you see any login prompts", 
+                    'error');
+                
+            } catch (error) {
+                showResult("❌ Error during extraction", 
+                    `An error occurred: ${error.message}\n\n` +
+                    "Please try again or contact support.", 
+                    'error');
+            }
+        }
+        
+        function checkLocalStorage() {
+            try {
+                const keys = Object.keys(localStorage);
+                console.log("localStorage keys:", keys);
+                
+                for (const key of keys) {
+                    const value = localStorage.getItem(key);
+                    if (isValidJWT(value)) {
+                        console.log(`Found JWT in localStorage.${key}`);
+                        return value;
+                    }
+                }
+                return null;
+            } catch (e) {
+                console.log("Error checking localStorage:", e);
+                return null;
+            }
+        }
+        
+        function checkSessionStorage() {
+            try {
+                const keys = Object.keys(sessionStorage);
+                console.log("sessionStorage keys:", keys);
+                
+                for (const key of keys) {
+                    const value = sessionStorage.getItem(key);
+                    if (isValidJWT(value)) {
+                        console.log(`Found JWT in sessionStorage.${key}`);
+                        return value;
+                    }
+                }
+                return null;
+            } catch (e) {
+                console.log("Error checking sessionStorage:", e);
+                return null;
+            }
+        }
+        
+        function checkCookies() {
+            try {
+                const cookies = document.cookie.split(';');
+                console.log("Cookies found:", cookies.length);
+                
+                for (const cookie of cookies) {
+                    const [name, value] = cookie.trim().split('=');
+                    if (isValidJWT(value)) {
+                        console.log(`Found JWT in cookie ${name}`);
+                        return value;
+                    }
+                }
+                return null;
+            } catch (e) {
+                console.log("Error checking cookies:", e);
+                return null;
+            }
+        }
+        
+        function checkPageContent() {
+            try {
+                const pageText = document.documentElement.outerHTML;
+                const jwtPattern = /eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*/g;
+                const matches = pageText.match(jwtPattern);
+                
+                if (matches) {
+                    for (const match of matches) {
+                        if (isValidJWT(match)) {
+                            console.log("Found JWT in page content");
+                            return match;
+                        }
+                    }
+                }
+                return null;
+            } catch (e) {
+                console.log("Error checking page content:", e);
+                return null;
+            }
+        }
+        
+        function checkJavaScriptVariables() {
+            try {
+                // Check common token variables
+                if (window.accessToken && isValidJWT(window.accessToken)) {
+                    console.log("Found accessToken in window");
+                    return window.accessToken;
+                }
+                
+                if (window.token && isValidJWT(window.token)) {
+                    console.log("Found token in window");
+                    return window.token;
+                }
+                
+                if (window.bearerToken && isValidJWT(window.bearerToken)) {
+                    console.log("Found bearerToken in window");
+                    return window.bearerToken;
+                }
+                
+                return null;
+            } catch (e) {
+                console.log("Error checking JavaScript variables:", e);
+                return null;
+            }
+        }
+        
+        function isValidJWT(token) {
+            if (!token || typeof token !== 'string') return false;
+            
+            // Check if it looks like a JWT
+            if (!token.startsWith('eyJ')) return false;
+            if (token.length < 100) return false;
+            
+            // Check if it has the right structure (3 parts separated by dots)
+            const parts = token.split('.');
+            if (parts.length !== 3) return false;
+            
+            return true;
+        }
+        
+        function showResult(title, content, type = 'result') {
+            const resultsDiv = document.getElementById('results');
+            
+            let html = `<div class="result ${type}">`;
+            html += `<h3>${title}</h3>`;
+            
+            if (type === 'success') {
+                html += `<p><strong>🎉 JWT Token Found!</strong></p>`;
+                html += `<p><strong>Copy this token:</strong></p>`;
+                html += `<div style="background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0; word-break: break-all;">${content}</div>`;
+                
+                // Add token validation info
+                try {
+                    const tokenInfo = decodeJWT(content);
+                    html += `<p><strong>Token Details:</strong></p>`;
+                    html += `<ul>`;
+                    html += `<li>Issued at: ${tokenInfo.iat}</li>`;
+                    html += `<li>Expires at: ${tokenInfo.exp}</li>`;
+                    html += `<li>User: ${tokenInfo.user || 'Not specified'}</li>`;
+                    html += `<li>Roles: ${tokenInfo.roles ? tokenInfo.roles.join(', ') : 'Not specified'}</li>`;
+                    html += `</ul>`;
+                } catch (e) {
+                    html += `<p>⚠️ Could not decode token details</p>`;
+                }
+                
+                html += `<p><strong>💡 Use this token in your app's config.ini file!</strong></p>`;
+                
+            } else {
+                html += `<p>${content}</p>`;
+            }
+            
+            html += `</div>`;
+            resultsDiv.innerHTML = html;
+        }
+        
+        function decodeJWT(token) {
+            try {
+                const parts = token.split('.');
+                const payload = JSON.parse(atob(parts[1]));
+                
+                return {
+                    iat: payload.iat ? new Date(payload.iat * 1000).toLocaleString() : 'Unknown',
+                    exp: payload.exp ? new Date(payload.exp * 1000).toLocaleString() : 'Unknown',
+                    user: payload.user || payload.email || payload.sub || 'Unknown',
+                    roles: payload.roles || payload.groups || payload.permissions || []
+                };
+            } catch (e) {
+                throw new Error('Could not decode JWT payload');
+            }
+        }
+        
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+        
+        // Auto-extract when page loads (if we're on Savanna)
+        window.addEventListener('load', function() {
+            if (window.location.hostname.includes('savanna.fyber.com')) {
+                console.log("Auto-extracting token from Savanna page...");
+                setTimeout(extractToken, 1000); // Wait a bit for page to fully load
+            }
+        });
+    </script>
+</body>
+</html>
+
