@@ -172,8 +172,12 @@ class CreativePreviewerApp:
         ttk.Label(search_input_frame, text="Search:").pack(side=tk.LEFT)
         self.search_var = tk.StringVar()
         self.search_entry = ttk.Entry(search_input_frame, textvariable=self.search_var, width=30)
-        self.search_entry.pack(side=tk.LEFT, padx=(5, 0))
+        self.search_entry.pack(side=tk.LEFT, padx=(5, 10))
         self.search_entry.bind('<KeyRelease>', self.filter_creatives)
+        
+        # Refresh DB button
+        refresh_button = ttk.Button(search_input_frame, text="🔄 Refresh DB", command=self.refresh_database)
+        refresh_button.pack(side=tk.LEFT)
         
         # Search instructions
         instructions_frame = ttk.Frame(search_frame)
@@ -1317,6 +1321,33 @@ class CreativePreviewerApp:
                 display_text = f"{day_str} | {creative['id']} | {creative['size']} | {creative['type']}"
                 self.creative_listbox.insert(tk.END, display_text)
     
+    def refresh_database(self):
+        """Refresh the database and reload creatives"""
+        try:
+            print("🔄 Refreshing database...")
+            
+            # Update status
+            if hasattr(self, 'job_status_label'):
+                self.job_status_label.config(text="🔄 Refreshing database...")
+            
+            # Reload creatives from Databricks
+            self.load_creatives()
+            
+            # Update status
+            if hasattr(self, 'job_status_label'):
+                self.job_status_label.config(text="✅ Database refreshed successfully!")
+            
+            print("✅ Database refresh completed")
+            
+        except Exception as e:
+            error_msg = f"Failed to refresh database: {str(e)}"
+            print(f"❌ {error_msg}")
+            
+            if hasattr(self, 'job_status_label'):
+                self.job_status_label.config(text=f"❌ Refresh failed: {str(e)}")
+            
+            messagebox.showerror("Refresh Error", error_msg)
+    
     def on_creative_select(self, event):
         """Handle creative selection"""
         selection = self.creative_listbox.curselection()
@@ -2350,19 +2381,45 @@ Raw Size: {self.selected_creative['size']}"""
         # Create settings window
         settings_window = tk.Toplevel(self.root)
         settings_window.title("Settings - Bearer Token Management")
-        settings_window.geometry("600x400")
-        settings_window.resizable(False, False)
+        settings_window.geometry("800x700")
+        settings_window.resizable(True, True)
         settings_window.transient(self.root)
         settings_window.grab_set()
         
+        # Set minimum size
+        settings_window.minsize(800, 700)
+        
         # Center the window
         settings_window.update_idletasks()
-        x = (settings_window.winfo_screenwidth() // 2) - (600 // 2)
-        y = (settings_window.winfo_screenheight() // 2) - (400 // 2)
-        settings_window.geometry(f"600x400+{x}+{y}")
+        x = (settings_window.winfo_screenwidth() // 2) - (800 // 2)
+        y = (settings_window.winfo_screenheight() // 2) - (700 // 2)
+        settings_window.geometry(f"800x700+{x}+{y}")
+        
+        # Create scrollable main frame
+        canvas = tk.Canvas(settings_window)
+        scrollbar = ttk.Scrollbar(settings_window, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Bind mouse wheel to canvas
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        canvas.bind("<MouseWheel>", _on_mousewheel)
+        
+        # Pack canvas and scrollbar
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
         
         # Main frame
-        main_frame = ttk.Frame(settings_window, padding="20")
+        main_frame = ttk.Frame(scrollable_frame, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # Title
@@ -2373,32 +2430,148 @@ Raw Size: {self.selected_creative['size']}"""
         current_frame = ttk.LabelFrame(main_frame, text="Current Token Information", padding="15")
         current_frame.pack(fill=tk.X, pady=(0, 20))
         
-        # Load current token info
+        # Load both Databricks and Savanna token info
         try:
-            # Use the existing SavannaBearerClient instance if available, or create a new one
+            # 1. DATABRICKS TOKEN (Main app token)
+            ttk.Label(current_frame, text="🔗 Databricks Token (Main App):", 
+                     font=("Arial", 11, "bold")).pack(anchor=tk.W, pady=(5, 0))
+            
+            if hasattr(self, 'access_token') and self.access_token:
+                databricks_token_preview = f"{self.access_token[:20]}...{self.access_token[-20:]}"
+                ttk.Label(current_frame, text=f"Token: {databricks_token_preview}", 
+                         font=("Arial", 10), foreground="blue").pack(anchor=tk.W, pady=(0, 5))
+                ttk.Label(current_frame, text="✅ Status: Valid (App is working)", 
+                         font=("Arial", 10), foreground="green").pack(anchor=tk.W, pady=(0, 5))
+                
+                # Try to get Databricks token expiration info
+                try:
+                    # Databricks tokens don't have built-in expiration, but we can show when it was last used
+                    ttk.Label(current_frame, text="ℹ️ Note: Databricks tokens don't expire automatically", 
+                             font=("Arial", 9), foreground="gray").pack(anchor=tk.W, pady=(0, 5))
+                except Exception as e:
+                    print(f"⚠️ Could not get Databricks token info: {e}")
+            else:
+                ttk.Label(current_frame, text="❌ No Databricks token found", 
+                         font=("Arial", 10), foreground="red").pack(anchor=tk.W, pady=(0, 5))
+            
+            # Separator
+            ttk.Separator(current_frame, orient='horizontal').pack(fill=tk.X, pady=10)
+            
+            # 2. SAVANNA TOKEN (Creative pulling)
+            ttk.Label(current_frame, text="🎯 Savanna Token (Creative Pulling):", 
+                     font=("Arial", 11, "bold")).pack(anchor=tk.W, pady=(5, 0))
+            
+            # Use the existing SavannaBearerClient instance from the main app
             if hasattr(self, 'savanna_client') and self.savanna_client:
                 client = self.savanna_client
+                print(f"🔍 Using existing Savanna client with token: {client.bearer_token[:20]}...{client.bearer_token[-20:] if client.bearer_token else 'None'}")
             else:
+                print("⚠️ No existing Savanna client found, creating new one")
                 from savanna_bearer_client import SavannaBearerClient
                 client = SavannaBearerClient()
             
-            token_info = client.get_token_info()
-            
-            # Display current token details
-            ttk.Label(current_frame, text=f"Status: {'✅ Valid' if token_info['valid'] else '❌ Expired'}", 
-                     font=("Arial", 12, "bold")).pack(anchor=tk.W, pady=(0, 5))
-            
-            if token_info['valid']:
-                ttk.Label(current_frame, text=f"Expires: {token_info['expires_at']}", 
-                         font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
-                ttk.Label(current_frame, text=f"Time Remaining: {token_info['time_remaining']}", 
-                         font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
-                ttk.Label(current_frame, text=f"User: {token_info['user']}", 
-                         font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
-                ttk.Label(current_frame, text=f"Roles: {', '.join(token_info['roles'])}", 
-                         font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
-            else:
-                ttk.Label(current_frame, text="Token has expired and needs to be updated", 
+            # Get Savanna token info using the working method from the logs
+            try:
+                # Use the same validation method that's working in the terminal logs
+                if hasattr(client, '_decode_jwt_token') and client.bearer_token:
+                    # Decode the JWT token directly like the working method does
+                    payload = client._decode_jwt_token(client.bearer_token)
+                    if payload:
+                        # Calculate expiration like the working method
+                        expiry_time = datetime.fromtimestamp(payload.get('exp', 0))
+                        issued_time = datetime.fromtimestamp(payload.get('iat', 0))
+                        current_time = datetime.now()
+                        
+                        time_until_expiry = (expiry_time - current_time).total_seconds()
+                        is_valid = time_until_expiry > 0
+                        
+                        # Format the times nicely
+                        issued_str = issued_time.strftime('%Y-%m-%d %H:%M:%S UTC')
+                        expiry_str = expiry_time.strftime('%Y-%m-%d %H:%M:%S UTC')
+                        
+                        if time_until_expiry > 0:
+                            hours_remaining = round(time_until_expiry / 3600, 1)
+                            time_remaining_str = f"{hours_remaining} hours"
+                        else:
+                            time_remaining_str = "Expired"
+                        
+                        # Display the correct token info
+                        status_text = "✅ Valid" if is_valid else "❌ Expired"
+                        status_color = "green" if is_valid else "red"
+                        
+                        ttk.Label(current_frame, text=f"Status: {status_text}", 
+                                 font=("Arial", 10), foreground=status_color).pack(anchor=tk.W, pady=(0, 5))
+                        
+                        # Show Savanna token preview
+                        if hasattr(client, 'bearer_token') and client.bearer_token:
+                            token_preview = f"{client.bearer_token[:20]}...{client.bearer_token[-20:]}"
+                            ttk.Label(current_frame, text=f"Token: {token_preview}", 
+                                     font=("Arial", 10), foreground="blue").pack(anchor=tk.W, pady=(0, 5))
+                        
+                        # Show user info from decoded payload
+                        user_email = payload.get('user', 'Unknown')
+                        ttk.Label(current_frame, text=f"User: {user_email}", 
+                                 font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
+                        
+                        # Show roles from decoded payload
+                        roles = payload.get('roles', [])
+                        if roles:
+                            ttk.Label(current_frame, text=f"Roles: {', '.join(roles)}", 
+                                     font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
+                        
+                        # Show timing information
+                        ttk.Label(current_frame, text=f"Issued: {issued_str}", 
+                                 font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
+                        ttk.Label(current_frame, text=f"Expires: {expiry_str}", 
+                                 font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
+                        
+                        if time_until_expiry > 0:
+                            ttk.Label(current_frame, text=f"Time Remaining: {time_remaining_str}", 
+                                     font=("Arial", 10), foreground="green").pack(anchor=tk.W, pady=(0, 5))
+                        else:
+                            ttk.Label(current_frame, text="Token has expired", 
+                                     font=("Arial", 10), foreground="red").pack(anchor=tk.W, pady=(0, 5))
+                    else:
+                        ttk.Label(current_frame, text="❌ Could not decode JWT token", 
+                                 font=("Arial", 10), foreground="red").pack(anchor=tk.W, pady=(0, 5))
+                else:
+                    # Fallback to the old method if _decode_jwt_token not available
+                    token_info = client.get_token_info()
+                    print(f"🔍 Fallback token info received: {token_info}")
+                    
+                    if 'error' in token_info:
+                        ttk.Label(current_frame, text=f"❌ Error: {token_info['error']}", 
+                                 font=("Arial", 10), foreground="red").pack(anchor=tk.W, pady=(0, 5))
+                    else:
+                        # Display fallback token details
+                        is_valid = token_info.get('valid', False)
+                        status_text = "✅ Valid" if is_valid else "❌ Expired"
+                        status_color = "green" if is_valid else "red"
+                        
+                        ttk.Label(current_frame, text=f"Status: {status_text}", 
+                                 font=("Arial", 10), foreground=status_color).pack(anchor=tk.W, pady=(0, 5))
+                        
+                        # Show other info from fallback method
+                        if 'user' in token_info:
+                            ttk.Label(current_frame, text=f"User: {token_info['user']}", 
+                                     font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
+                        
+                        if 'expires_at' in token_info:
+                            ttk.Label(current_frame, text=f"Expires: {token_info['expires_at']}", 
+                                     font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
+                        
+                        if 'time_remaining' in token_info:
+                            time_remaining = token_info['time_remaining']
+                            if time_remaining != "Expired":
+                                ttk.Label(current_frame, text=f"Time Remaining: {time_remaining}", 
+                                         font=("Arial", 10), foreground="green").pack(anchor=tk.W, pady=(0, 5))
+                            else:
+                                ttk.Label(current_frame, text="Token has expired", 
+                                         font=("Arial", 10), foreground="red").pack(anchor=tk.W, pady=(0, 5))
+                        
+            except Exception as e:
+                print(f"❌ Error in Savanna token validation: {e}")
+                ttk.Label(current_frame, text=f"❌ Error validating token: {str(e)}", 
                          font=("Arial", 10), foreground="red").pack(anchor=tk.W, pady=(0, 5))
                 
         except Exception as e:
@@ -2409,6 +2582,44 @@ Raw Size: {self.selected_creative['size']}"""
         update_frame = ttk.LabelFrame(main_frame, text="Update Bearer Token", padding="15")
         update_frame.pack(fill=tk.X, pady=(0, 20))
         
+        # HAR file upload section
+        har_frame = ttk.Frame(update_frame)
+        har_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        ttk.Label(har_frame, text="📁 Or upload HAR file to extract token:", 
+                 font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(0, 5))
+        
+        har_button_frame = ttk.Frame(har_frame)
+        har_button_frame.pack(fill=tk.X)
+        
+        def upload_har_file():
+            """Upload HAR file and extract token"""
+            try:
+                # Browse for HAR file
+                file_path = filedialog.askopenfilename(
+                    title="Select HAR File",
+                    filetypes=[("HAR files", "*.har"), ("All files", "*.*")]
+                )
+                
+                if not file_path:
+                    return
+                
+                # Extract token from HAR file
+                token = self.extract_token_from_har(file_path)
+                if token:
+                    # Auto-fill the token input
+                    token_var.set(token)
+                    messagebox.showinfo("Success", f"✅ Token extracted from HAR file!\n\nToken: {token[:30]}...{token[-30:]}\n\nYou can now test and update it.")
+                else:
+                    messagebox.showwarning("Warning", "No valid token found in HAR file")
+                    
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to extract token from HAR: {str(e)}")
+        
+        ttk.Button(har_button_frame, text="📁 Upload HAR File", 
+                   command=upload_har_file, width=20).pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Manual token input section
         ttk.Label(update_frame, text="Enter new bearer token:").pack(anchor=tk.W, pady=(0, 5))
         
         # Token input
@@ -2464,7 +2675,51 @@ Raw Size: {self.selected_creative['size']}"""
                                                 params={"$limit": "1"}, timeout=10)
                 
                 if response.status_code == 200:
-                    messagebox.showinfo("Success", "✅ Token is valid!\n\nYou can now save it using the 'Update Token' button.")
+                    # Decode the new token to show its details
+                    token_details = ""
+                    try:
+                        if hasattr(test_client, '_decode_jwt_token') and new_token:
+                            payload = test_client._decode_jwt_token(new_token)
+                            if payload:
+                                # Calculate expiration
+                                expiry_time = datetime.fromtimestamp(payload.get('exp', 0))
+                                issued_time = datetime.fromtimestamp(payload.get('iat', 0))
+                                current_time = datetime.now()
+                                
+                                time_until_expiry = (expiry_time - current_time).total_seconds()
+                                is_valid = time_until_expiry > 0
+                                
+                                # Format the times nicely
+                                issued_str = issued_time.strftime('%Y-%m-%d %H:%M:%S UTC')
+                                expiry_str = expiry_time.strftime('%Y-%m-%d %H:%M:%S UTC')
+                                
+                                if time_until_expiry > 0:
+                                    hours_remaining = round(time_until_expiry / 3600, 1)
+                                    time_remaining_str = f"{hours_remaining} hours"
+                                else:
+                                    time_remaining_str = "Expired"
+                                
+                                # Build detailed token info
+                                token_details = f"""
+✅ Token is valid!
+
+🔍 Token Details:
+• User: {payload.get('user', 'Unknown')}
+• Roles: {', '.join(payload.get('roles', []))}
+• Issued: {issued_str}
+• Expires: {expiry_str}
+• Time Remaining: {time_remaining_str}
+
+💾 You can now save it using the 'Update Token' button."""
+                            else:
+                                token_details = "✅ Token is valid!\n\n🔍 Could not decode token details\n\n💾 You can now save it using the 'Update Token' button."
+                        else:
+                            token_details = "✅ Token is valid!\n\n🔍 Could not decode token details\n\n💾 You can now save it using the 'Update Token' button."
+                    except Exception as decode_error:
+                        print(f"⚠️ Could not decode token details: {decode_error}")
+                        token_details = "✅ Token is valid!\n\n🔍 Could not decode token details\n\n💾 You can now save it using the 'Update Token' button."
+                    
+                    messagebox.showinfo("Success", token_details)
                 else:
                     messagebox.showerror("Error", f"❌ Token test failed: {response.status_code}\n\nPlease check your token and try again.")
                     
@@ -2667,6 +2922,83 @@ Raw Size: {self.selected_creative['size']}"""
             return token.strip()
         
         return None
+    
+    def extract_token_from_har(self, har_file_path: str) -> str:
+        """Extract bearer token from HAR file"""
+        try:
+            import json
+            import re
+            
+            print(f"🔍 Extracting token from HAR file: {har_file_path}")
+            
+            with open(har_file_path, 'r', encoding='utf-8') as f:
+                har_data = json.load(f)
+            
+            # Extract bearer tokens
+            bearer_pattern = r'eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+'
+            tokens_found = []
+            
+            for entry in har_data.get('log', {}).get('entries', []):
+                # Check request headers
+                if 'request' in entry:
+                    headers = entry['request'].get('headers', [])
+                    for header in headers:
+                        if header.get('name', '').lower() == 'authorization':
+                            auth_value = header.get('value', '')
+                            if 'Bearer ' in auth_value:
+                                token = auth_value.replace('Bearer ', '')
+                                if re.match(bearer_pattern, token):
+                                    tokens_found.append({
+                                        'token': token,
+                                        'url': entry['request'].get('url', ''),
+                                        'source': 'header'
+                                    })
+                
+                # Check response bodies for tokens
+                if 'response' in entry:
+                    content = entry['response'].get('content', {})
+                    if 'text' in content:
+                        text_content = content['text']
+                        
+                        # Look for bearer tokens in response text
+                        bearer_matches = re.findall(bearer_pattern, text_content)
+                        for token in bearer_matches:
+                            tokens_found.append({
+                                'token': token,
+                                'url': entry['request'].get('url', ''),
+                                'source': 'response_body'
+                            })
+                        
+                        # Look for access_token in URLs or response
+                        access_token_pattern = r'access_token=([a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+)'
+                        access_tokens = re.findall(access_token_pattern, text_content)
+                        for token in access_tokens:
+                            tokens_found.append({
+                                'token': token,
+                                'url': entry['request'].get('url', ''),
+                                'source': 'access_token'
+                            })
+            
+            # Remove duplicates
+            unique_tokens = []
+            seen_tokens = set()
+            for token_info in tokens_found:
+                if token_info['token'] not in seen_tokens:
+                    unique_tokens.append(token_info)
+                    seen_tokens.add(token_info['token'])
+            
+            if unique_tokens:
+                # Return the first token found
+                selected_token = unique_tokens[0]['token']
+                print(f"✅ Found {len(unique_tokens)} tokens, using: {selected_token[:30]}...{selected_token[-30:]}")
+                return selected_token
+            else:
+                print("❌ No tokens found in HAR file")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Error extracting token from HAR: {e}")
+            return None
     
     def save_token_to_config(self, token):
         """Save token to config.ini file"""
