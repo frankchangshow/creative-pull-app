@@ -421,70 +421,47 @@ class CreativePreviewerApp:
     def _unified_search_thread(self, creative_id):
         """Search for creative ID in background thread"""
         try:
-            # Databricks connection
-            connection_params = {
-                "server_hostname": DATABRICKS_SERVER_HOSTNAME,
-                "http_path": DATABRICKS_HTTP_PATH,
-                "access_token": self.access_token
-            }
+            # Use Databricks client
+            from clients.databricks_client import DatabricksClient
+            client = DatabricksClient()
+            results = client.search_pulling_queue(
+                DATABRICKS_SERVER_HOSTNAME,
+                DATABRICKS_HTTP_PATH,
+                self.access_token,
+                CREATIVE_PULLING_TABLE,
+                creative_id,
+            )
             
-            with sql.connect(**connection_params) as connection:
-                with connection.cursor() as cursor:
-                    # Query creative_pulling table for the specific creative_id
-                    query = f"""
-                    SELECT 
-                        creative_id,
-                        creation_date,
-                        expire_date,
-                        active
-                    FROM {CREATIVE_PULLING_TABLE} 
-                    WHERE creative_id = '{creative_id}'
-                    ORDER BY creation_date DESC
-                    """
-                    
-                    cursor.execute(query)
-                    results = cursor.fetchall()
-                    
-                    if results:
-                        # Format results - only essential information
-                        result_text = f"✅ FOUND: Creative ID '{creative_id}' is in the pulling queue\n\n"
-                        
-                        for i, row in enumerate(results, 1):
-                            creative_id, creation_date, expire_date, active = row
-                            
-                            # Format dates
-                            creation_str = creation_date.strftime('%Y-%m-%d %H:%M:%S') if creation_date else 'N/A'
-                            expire_str = expire_date.strftime('%Y-%m-%d %H:%M:%S') if expire_date else 'N/A'
-                            
-                            result_text += f"📋 Record {i}:\n"
-                            result_text += f"   🕒 Created Time: {creation_str}\n"
-                            result_text += f"   ⏰ Expire Time: {expire_str}\n"
-                            
-                            # Check if expired and show status
-                            if expire_date:
-                                # Convert to naive datetime for comparison if needed
-                                if expire_date.tzinfo is not None:
-                                    expire_date = expire_date.replace(tzinfo=None)
-                                current_time = datetime.now().replace(tzinfo=None)
-                                
-                                if expire_date < current_time:
-                                    result_text += f"   ⚠️  Status: EXPIRED\n"
-                                elif active:
-                                    result_text += f"   ✅ Status: ACTIVE\n"
-                                else:
-                                    result_text += f"   ❌ Status: INACTIVE\n"
-                            elif active:
-                                result_text += f"   ✅ Status: ACTIVE\n"
-                            else:
-                                result_text += f"   ❌ Status: INACTIVE\n"
-                            
-                            result_text += "\n"
+            if results:
+                # Format results - only essential information
+                result_text = f"✅ FOUND: Creative ID '{creative_id}' is in the pulling queue\n\n"
+                for i, row in enumerate(results, 1):
+                    creative_id, creation_date, expire_date, active = row
+                    creation_str = creation_date.strftime('%Y-%m-%d %H:%M:%S') if creation_date else 'N/A'
+                    expire_str = expire_date.strftime('%Y-%m-%d %H:%M:%S') if expire_date else 'N/A'
+                    result_text += f"📋 Record {i}:\n"
+                    result_text += f"   🕒 Created Time: {creation_str}\n"
+                    result_text += f"   ⏰ Expire Time: {expire_str}\n"
+                    if expire_date:
+                        if expire_date.tzinfo is not None:
+                            expire_date = expire_date.replace(tzinfo=None)
+                        current_time = datetime.now().replace(tzinfo=None)
+                        if expire_date < current_time:
+                            result_text += f"   ⚠️  Status: EXPIRED\n"
+                        elif active:
+                            result_text += f"   ✅ Status: ACTIVE\n"
+                        else:
+                            result_text += f"   ❌ Status: INACTIVE\n"
+                    elif active:
+                        result_text += f"   ✅ Status: ACTIVE\n"
                     else:
-                        result_text = f"❌ NOT FOUND: Creative ID '{creative_id}' is not in the pulling queue\n\n"
-                        result_text += "This creative ID has not been added to the pulling queue yet."
-                    
-                    # Update UI in main thread
-                    self.root.after(0, lambda: self._unified_search_completed(result_text))
+                        result_text += f"   ❌ Status: INACTIVE\n"
+                    result_text += "\n"
+            else:
+                result_text = f"❌ NOT FOUND: Creative ID '{creative_id}' is not in the pulling queue\n\n"
+                result_text += "This creative ID has not been added to the pulling queue yet."
+            # Update UI in main thread
+            self.root.after(0, lambda: self._unified_search_completed(result_text))
                     
         except Exception as e:
             error_msg = f"❌ Error searching for Creative ID: {str(e)}"
@@ -717,29 +694,11 @@ class CreativePreviewerApp:
             # Update UI with initial status
             self.root.after(0, lambda: self._update_job_status("🚀 Preparing to start job..."))
             
-            # Prepare job parameters
-            job_params = {
-                "job_id": JOB_ID,
-                "notebook_params": {
-                    "start_date": start_date,
-                    "end_date": end_date
-                }
-            }
-            
-            # API endpoint
-            api_url = f"{DATABRICKS_WORKSPACE_URL}/api/2.1/jobs/run-now"
-            
-            # Headers
-            headers = {
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json"
-            }
-            
-            # Update UI
+            # Use Databricks client
+            from clients.databricks_client import DatabricksClient
+            client = DatabricksClient()
             self.root.after(0, lambda: self._update_job_status("📡 Sending job request to Databricks..."))
-            
-            # Make the API request
-            response = requests.post(api_url, headers=headers, json=job_params, timeout=30)
+            response = client.run_job(DATABRICKS_WORKSPACE_URL, self.access_token, JOB_ID, start_date, end_date)
             
             if response.status_code == 200:
                 result = response.json()
@@ -770,15 +729,10 @@ class CreativePreviewerApp:
             return
             
         try:
-            # Get job run status
-            api_url = f"{DATABRICKS_WORKSPACE_URL}/api/2.1/jobs/runs/get"
-            headers = {
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json"
-            }
-            params = {"run_id": run_id}
-            
-            response = requests.get(api_url, headers=headers, params=params, timeout=30)
+            # Use Databricks client
+            from clients.databricks_client import DatabricksClient
+            client = DatabricksClient()
+            response = client.get_run_status(DATABRICKS_WORKSPACE_URL, self.access_token, run_id)
             
             if response.status_code == 200:
                 result = response.json()
@@ -898,21 +852,10 @@ class CreativePreviewerApp:
     def _check_job_status_thread(self):
         """Check job status in background thread"""
         try:
-            # Get recent runs
-            api_url = f"{DATABRICKS_WORKSPACE_URL}/api/2.1/jobs/runs/list"
-            
-            headers = {
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json"
-            }
-            
-            params = {
-                "limit": 5,
-                "offset": 0,
-                "job_id": JOB_ID
-            }
-            
-            response = requests.get(api_url, headers=headers, params=params, timeout=30)
+            # Use Databricks client
+            from clients.databricks_client import DatabricksClient
+            client = DatabricksClient()
+            response = client.list_recent_runs(DATABRICKS_WORKSPACE_URL, self.access_token, JOB_ID, limit=5)
             
             if response.status_code == 200:
                 job_runs = response.json()
@@ -1049,49 +992,16 @@ class CreativePreviewerApp:
             try:
                 self.status_label.config(text="Loading creatives from Databricks...")
                 
-                # Databricks connection
-                connection_params = {
-                    "server_hostname": DATABRICKS_SERVER_HOSTNAME,
-                    "http_path": DATABRICKS_HTTP_PATH,
-                    "access_token": self.access_token
-                }
-                
-                with sql.connect(**connection_params) as connection:
-                    with connection.cursor() as cursor:
-                        # Query to get creatives with day column
-                        query = f"""
-                        SELECT day, creativeId, adSize, type, markup 
-                        FROM {DATABRICKS_TABLE_NAME} 
-                        ORDER BY day DESC
-                        LIMIT 500
-                        """
-                        
-                        cursor.execute(query)
-                        results = cursor.fetchall()
-                        
-                        # Process results
-                        creatives = []
-                        for row in results:
-                            day, creative_id, ad_size, ad_type, markup = row
-                            
-                            # Parse ad_size to get width and height
-                            size_parts = ad_size.split('x') if ad_size else ['0', '0']
-                            width = size_parts[0] if len(size_parts) > 0 else '0'
-                            height = size_parts[1] if len(size_parts) > 1 else '0'
-                            
-                            creative = {
-                                'day': day,
-                                'id': creative_id,
-                                'size': ad_size,
-                                'width': width,
-                                'height': height,
-                                'type': ad_type,
-                                'markup': markup
-                            }
-                            creatives.append(creative)
-                        
-                        # Update UI in main thread
-                        self.root.after(0, self.on_data_loaded, creatives)
+                from clients.databricks_client import DatabricksClient
+                client = DatabricksClient()
+                creatives = client.get_latest_creatives(
+                    DATABRICKS_SERVER_HOSTNAME,
+                    DATABRICKS_HTTP_PATH,
+                    self.access_token,
+                    DATABRICKS_TABLE_NAME,
+                )
+                # Update UI in main thread
+                self.root.after(0, self.on_data_loaded, creatives)
                         
             except Exception as e:
                 error_msg = f"Error loading creatives: {str(e)}"
