@@ -25,7 +25,7 @@ jobs:
 
     - name: Build with PyInstaller
       run: |
-        pyinstaller --noconfirm --onedir --windowed --name "Creative_Previewer_App" --icon="app_icon.ico" --collect-all numpy --exclude-module matplotlib --exclude-module scipy creative_previewer_app_webview.py
+        pyinstaller --noconfirm --onedir --windowed --name "Creative_Previewer_App" --collect-all numpy --exclude-module matplotlib --exclude-module scipy creative_previewer_app_webview.py
 
     - name: Package application
       run: |
