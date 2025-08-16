@@ -11,10 +11,10 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v4
       with:
         python-version: '3.10'
 
@@ -32,7 +32,7 @@ jobs:
         Compress-Archive -Path dist/Creative_Previewer_App -DestinationPath Creative_Previewer_App_Windows.zip
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: Creative_Previewer_App_Windows
         path: Creative_Previewer_App_Windows.zip
