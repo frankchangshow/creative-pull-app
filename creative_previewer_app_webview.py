@@ -22,6 +22,11 @@ import configparser
 import html
 import re
 import requests
+from utils.vast_utils import (
+    extract_vast_url as util_extract_vast_url,
+    extract_vast_click_through as util_extract_vast_click,
+    get_inline_vast_xml_from_markup as util_get_inline_vast_xml,
+)
 
 # Import the Savanna bearer client for save functionality
 from savanna_bearer_client import SavannaBearerClient
@@ -324,7 +329,8 @@ class CreativePreviewerApp:
                 print("❌ Savanna client not available")
                 return
             
-            savanna_client = self.savanna_client
+            from clients.savanna_client import SavannaClientWrapper
+            savanna_client = SavannaClientWrapper(self.savanna_client)
             
             # Make API call to search networks - using the exact format from HAR file
             url = "https://savanna.fyber.com/ad-networks"
@@ -347,7 +353,7 @@ class CreativePreviewerApp:
                 }
                 print(f"🔍 Searching networks with params: {params}")
             
-            response = savanna_client.session.get(url, params=params, timeout=15)
+            response = savanna_client.search_networks(url, params, timeout=15)
             
             print(f"📡 API Response Status: {response.status_code}")
             
@@ -1299,109 +1305,12 @@ Raw Size: {self.selected_creative['size']}"""
             return {'error': f'Unexpected error: {str(e)}'}
     
     def decode_html_entities(self, text):
-        """Decode HTML entities"""
-        if not text:
-            return text
-        
-        # Use html.unescape for basic entities
-        decoded = html.unescape(text)
-        
-        # Additional replacements for common entities
-        replacements = {
-            '&nbsp;': ' ',
-            '&#39;': "'",
-            '&#34;': '"',
-            '&#60;': '<',
-            '&#62;': '>',
-            '&#38;': '&',
-            '&#160;': ' '
-        }
-        
-        for entity, replacement in replacements.items():
-            decoded = decoded.replace(entity, replacement)
-        
-        return decoded
+        from ui.preview import decode_html_entities as _decode
+        return _decode(text)
     
     def extract_vast_url(self, markup):
-        """Extract VAST URL from markup - following the React app approach"""
-        import re
-        import html
-        from xml.etree import ElementTree as ET
-        
-        # First, look for VASTAdTagURI (this is the VAST XML endpoint for wrapper VAST)
-        vast_ad_tag_patterns = [
-            r'<VASTAdTagURI><!\[CDATA\[(.*?)\]\]></VASTAdTagURI>',
-            r'<VASTAdTagURI>(.*?)</VASTAdTagURI>'
-        ]
-        
-        for pattern in vast_ad_tag_patterns:
-            match = re.search(pattern, markup, re.IGNORECASE)
-            if match:
-                vast_xml_url = match.group(1)
-                # Decode HTML entities in the URL
-                vast_xml_url = html.unescape(vast_xml_url)
-                print(f"🎯 Found VAST XML URL (wrapper): {vast_xml_url}")
-                
-                # Follow the VAST chain like the React app does
-                try:
-                    return self._process_vast_chain(vast_xml_url)
-                except Exception as e:
-                    print(f"❌ Error processing VAST chain: {e}")
-                    return vast_xml_url  # Fallback to original URL
-        
-        # If no VASTAdTagURI found, this might be a direct VAST response
-        print("🔍 No VASTAdTagURI found, checking for direct MediaFile...")
-        
-        # Try to parse the markup as XML to find MediaFile
-        try:
-            # Clean up the markup first (remove CDATA if present)
-            clean_markup = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', markup)
-            
-            # Parse as XML
-            root = ET.fromstring(clean_markup)
-            
-            # Look for MediaFile elements
-            media_files = []
-            for media_file in root.findall('.//MediaFile'):
-                url = media_file.text.strip() if media_file.text else ''
-                media_type = media_file.get('type', '')
-                
-                if media_type == 'video/mp4' or url.endswith('.mp4'):
-                    bitrate = int(media_file.get('bitrate', '0') or '0')
-                    media_files.append({
-                        'url': url,
-                        'type': media_type,
-                        'bitrate': bitrate
-                    })
-            
-            if media_files:
-                # Sort by bitrate (highest first) like the React app
-                media_files.sort(key=lambda x: x['bitrate'], reverse=True)
-                primary_video = media_files[0]
-                print(f"🎬 Found direct MediaFile URL: {primary_video['url']}")
-                return primary_video['url']
-                
-        except ET.ParseError as e:
-            print(f"❌ Error parsing markup as XML: {e}")
-        
-        # Fallback: look for direct MediaFile URLs using regex
-        direct_media_patterns = [
-            r'<MediaFile[^>]*><!\[CDATA\[(.*?)\]\]></MediaFile>',
-            r'<MediaFile[^>]*>(.*?)</MediaFile>',
-            r'<URL><!\[CDATA\[(.*?)\]\]></URL>',
-            r'<URL>(.*?)</URL>'
-        ]
-        
-        for pattern in direct_media_patterns:
-            match = re.search(pattern, markup, re.IGNORECASE)
-            if match:
-                media_url = match.group(1).strip()
-                if media_url and (media_url.endswith('.mp4') or 'video' in media_url):
-                    print(f"🎬 Found direct MediaFile URL (regex): {media_url}")
-                    return media_url
-        
-        print("❌ No VAST URL found in markup")
-        return None
+        """Proxy to utils.vast_utils.extract_vast_url for maintainability."""
+        return util_extract_vast_url(markup)
     
     def _process_vast_chain(self, vast_url, wrapper_count=0):
         """Process VAST chain recursively like the React app - follows wrappers to find InLine"""
@@ -1484,105 +1393,16 @@ Raw Size: {self.selected_creative['size']}"""
             raise
     
     def extract_vast_click_through(self, markup):
-        """Extract click-through URL from VAST markup - following the React app approach"""
-        # First, look for VASTAdTagURI to get the VAST XML
-        vast_ad_tag_patterns = [
-            r'<VASTAdTagURI><!\[CDATA\[(.*?)\]\]></VASTAdTagURI>',
-            r'<VASTAdTagURI>(.*?)</VASTAdTagURI>'
-        ]
-        
-        for pattern in vast_ad_tag_patterns:
-            match = re.search(pattern, markup, re.IGNORECASE)
-            if match:
-                vast_xml_url = match.group(1)
-                # Decode HTML entities in the URL
-                vast_xml_url = html.unescape(vast_xml_url)
-                print(f"🎯 Looking for click-through in VAST: {vast_xml_url}")
-                
-                # Follow the VAST chain to find click-through
-                try:
-                    return self._extract_click_through_from_vast_chain(vast_xml_url)
-                except Exception as e:
-                    print(f"❌ Error extracting click-through from VAST chain: {e}")
-                    break
-        
-        # Fallback: look for direct click-through URLs in the original markup
-        click_patterns = [
-            r'<ClickThrough><!\[CDATA\[(.*?)\]\]></ClickThrough>',
-            r'<ClickThrough>(.*?)</ClickThrough>',
-            r'<ClickTracking><!\[CDATA\[(.*?)\]\]></ClickTracking>',
-            r'<ClickTracking>(.*?)</ClickTracking>'
-        ]
-        
-        for pattern in click_patterns:
-            match = re.search(pattern, markup, re.IGNORECASE)
-            if match:
-                return match.group(1)
-        
-        return None
+        """Proxy to utils.vast_utils.extract_vast_click_through."""
+        return util_extract_vast_click(markup)
+
+    def _get_inline_vast_xml_from_markup(self, markup):
+        """Delegate to utils.vast_utils.get_inline_vast_xml_from_markup."""
+        return util_get_inline_vast_xml(markup)
+
+    # _fetch_inline_vast_xml now provided by utils; kept only via _get_inline_vast_xml_from_markup
     
-    def _extract_click_through_from_vast_chain(self, vast_url, wrapper_count=0):
-        """Extract click-through URL from VAST chain recursively"""
-        MAX_VAST_WRAPPERS = 5
-        
-        if wrapper_count > MAX_VAST_WRAPPERS:
-            raise Exception('Exceeded maximum VAST wrapper redirects')
-        
-        try:
-            # Fetch VAST XML
-            response = requests.get(vast_url, timeout=10)
-            if response.status_code != 200:
-                raise Exception(f"Failed to fetch VAST XML: {response.status_code}")
-            
-            vast_xml = response.text
-            
-            # Parse XML
-            try:
-                root = ET.fromstring(vast_xml)
-            except ET.ParseError as e:
-                raise Exception(f"Invalid XML: {e}")
-            
-            # Check for InLine (final ad)
-            inline_ad = root.find('.//InLine')
-            if inline_ad is not None:
-                print("✅ Found InLine VAST. Extracting click-through...")
-                
-                # Find Linear creative
-                linear = inline_ad.find('.//Linear')
-                if linear is None:
-                    raise Exception('InLine VAST does not contain a Linear creative')
-                
-                # Find VideoClicks and ClickThrough
-                video_clicks = linear.find('.//VideoClicks')
-                if video_clicks is not None:
-                    click_through = video_clicks.find('.//ClickThrough')
-                    if click_through is not None and click_through.text:
-                        click_url = click_through.text.strip()
-                        print(f"🔗 Found click-through URL: {click_url}")
-                        return click_url
-                
-                return None
-            
-            # Check for Wrapper (needs to fetch another VAST)
-            wrapper_ad = root.find('.//Wrapper')
-            if wrapper_ad is not None:
-                print(f"🔄 Found Wrapper {wrapper_count + 1}. Following for click-through...")
-                
-                vast_ad_tag_uri = wrapper_ad.find('.//VASTAdTagURI')
-                if vast_ad_tag_uri is None or not vast_ad_tag_uri.text:
-                    raise Exception('Wrapper VAST does not contain a VASTAdTagURI')
-                
-                next_vast_url = vast_ad_tag_uri.text.strip()
-                
-                # Recursively process the next VAST
-                return self._extract_click_through_from_vast_chain(next_vast_url, wrapper_count + 1)
-            
-            # Neither InLine nor Wrapper found
-            raise Exception('VAST XML contains neither InLine nor Wrapper Ad element')
-            
-        except Exception as e:
-            print(f"❌ Error during click-through extraction (Level {wrapper_count}): {e}")
-            raise
+    # _extract_click_through_from_vast_chain now handled in utils via extract_vast_click_through
     
     def show_preview(self):
         """Show preview in webview window"""
@@ -1600,94 +1420,9 @@ Raw Size: {self.selected_creative['size']}"""
         if not self.current_markup:
             messagebox.showwarning("Warning", "No markup to preview!")
             return
-        
-        # Create HTML content
-        html_content = f"""
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Display Ad Preview</title>
-            <style>
-                body {{ 
-                    margin: 0; 
-                    padding: 20px; 
-                    font-family: Arial, sans-serif; 
-                    background: #f5f5f5;
-                }}
-                .ad-container {{ 
-                    border: 2px solid #ddd; 
-                    border-radius: 8px;
-                    padding: 20px; 
-                    background: white;
-                    max-width: 100%;
-                    overflow: auto;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                }}
-                .ad-content {{ 
-                    max-width: 480px;
-                    max-height: 320px;
-                    margin: 0 auto;
-                    overflow: auto;
-                }}
-                .preview-header {{
-                    background: #007bff;
-                    color: white;
-                    padding: 10px 20px;
-                    margin: -20px -20px 20px -20px;
-                    border-radius: 6px 6px 0 0;
-                    font-weight: bold;
-                    font-size: 16px;
-                }}
-                .info-panel {{
-                    background: #e9ecef;
-                    border: 1px solid #dee2e6;
-                    border-radius: 4px;
-                    padding: 10px;
-                    margin: 10px 0;
-                    font-size: 12px;
-                    color: #495057;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="ad-container">
-                <div class="preview-header">
-                    🎨 Display Ad Preview - {self.selected_creative['size'] if self.selected_creative else 'Unknown'}
-                </div>
-                <div class="info-panel">
-                    <strong>Creative Info:</strong> ID: {self.selected_creative['id'] if self.selected_creative else 'Unknown'}, 
-                    Size: {self.selected_creative['size'] if self.selected_creative else 'Unknown'}, Type: {self.current_type}
-                </div>
-                <div class="ad-content">
-                    {self.current_markup}
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        
-        # Save to temporary file with better error handling
-        import tempfile
-        import os
-        
-        try:
-            # Create temporary file in system temp directory
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
-                f.write(html_content)
-                temp_file = f.name
-            
-            print(f"📄 Created display preview file: {temp_file}")
-            print(f"📄 File size: {os.path.getsize(temp_file)} bytes")
-            
-            # Open in external browser
-            file_url = f"file://{os.path.abspath(temp_file)}"
-            print(f"🌐 Opening URL: {file_url}")
-            webbrowser.open(file_url)
-            
-        except Exception as e:
-            print(f"❌ Error creating display preview: {e}")
-            messagebox.showerror("Error", f"Could not create display preview: {e}")
+        from ui.preview import build_display_preview_html, save_html_to_temp_and_open
+        html_content = build_display_preview_html(self.selected_creative, self.current_type, self.current_markup)
+        save_html_to_temp_and_open(html_content, label='display')
     
     def show_vast_preview(self):
         """Show VAST video preview in webview"""
@@ -1703,383 +1438,39 @@ Raw Size: {self.selected_creative['size']}"""
             messagebox.showwarning("Warning", "No VAST URL found!")
             return
         
-        # Create HTML content for VAST preview
-        # Extract companion ad info
-        companion_info = self._extract_companion_ad_info(self.current_markup)
-        
-        html_content = f"""
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>VAST Video Preview</title>
-            <style>
-                body {{ 
-                    margin: 0; 
-                    padding: 20px; 
-                    font-family: Arial, sans-serif; 
-                    background: #f5f5f5;
-                    font-size: 14px;
-                }}
-                .vast-container {{ 
-                    border: 2px solid #ddd; 
-                    border-radius: 8px;
-                    padding: 30px; 
-                    background: white;
-                    text-align: center;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    max-width: 95vw;
-                    width: 100%;
-                    margin: 0 auto;
-                    box-sizing: border-box;
-                }}
-                .vast-player {{
-                    max-width: 100%;
-                    margin: 20px auto;
-                    text-align: center;
-                }}
-                .video-container {{
-                    width: 100%;
-                    max-width: 100%;
-                    margin: 0 auto;
-                    overflow: hidden;
-                    border-radius: 8px;
-                    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-                    position: relative;
-                }}
-                .video-container video {{
-                    width: 100%;
-                    height: auto;
-                    object-fit: contain;
-                    display: block;
-                }}
-                .video-container.portrait {{
-                    max-width: 400px;
-                    margin: 20px auto;
-                }}
-                .video-container.portrait video {{
-                    max-width: 400px;
-                    max-height: 600px;
-                    width: auto;
-                    height: auto;
-                }}
-                .video-container.landscape {{
-                    max-width: 100%;
-                    margin: 20px auto;
-                    aspect-ratio: 16/9;
-                }}
-                .video-container.landscape video {{
-                    width: 100%;
-                    height: 100%;
-                    max-height: 70vh;
-                    object-fit: contain;
-                }}
-                /* Responsive design for different screen sizes */
-                @media (min-width: 1200px) {{
-                    .video-container.landscape {{
-                        max-width: 1000px;
-                        aspect-ratio: 16/9;
-                    }}
-                }}
-                @media (min-width: 768px) and (max-width: 1199px) {{
-                    .video-container.landscape {{
-                        max-width: 90vw;
-                        aspect-ratio: 16/9;
-                    }}
-                }}
-                @media (max-width: 767px) {{
-                    .video-container.landscape {{
-                        max-width: 95vw;
-                        aspect-ratio: 16/9;
-                    }}
-                    .video-container.portrait {{
-                        max-width: 300px;
-                    }}
-                }}
-                .url-section {{
-                    display: grid;
-                    grid-template-columns: 1fr 1fr;
-                    gap: 15px;
-                    margin: 20px 0;
-                }}
-                .vast-url {{
-                    background: #f8f9fa;
-                    border: 1px solid #dee2e6;
-                    border-radius: 8px;
-                    padding: 15px;
-                    font-family: monospace;
-                    word-break: break-all;
-                    text-align: left;
-                    font-size: 11px;
-                    position: relative;
-                    min-height: 80px;
-                }}
-                .vast-url.single {{
-                    grid-column: 1 / -1;
-                }}
-                @media (max-width: 768px) {{
-                    .url-section {{
-                        grid-template-columns: 1fr;
-                    }}
-                }}
-                .copy-button {{
-                    position: absolute;
-                    top: 5px;
-                    right: 5px;
-                    background: #007bff;
-                    color: white;
-                    border: none;
-                    border-radius: 3px;
-                    padding: 2px 8px;
-                    font-size: 10px;
-                    cursor: pointer;
-                }}
-                .copy-button:hover {{
-                    background: #0056b3;
-                }}
-                .preview-header {{
-                    background: #28a745;
-                    color: white;
-                    padding: 15px 25px;
-                    margin: -30px -30px 25px -30px;
-                    border-radius: 6px 6px 0 0;
-                    font-weight: bold;
-                    font-size: 18px;
-                }}
-                .info-panel {{
-                    background: #e9ecef;
-                    border: 1px solid #dee2e6;
-                    border-radius: 6px;
-                    padding: 15px;
-                    margin: 15px 0;
-                    font-size: 14px;
-                    color: #495057;
-                }}
-                .companion-section {{
-                    margin-top: 20px;
-                    border-top: 2px solid #dee2e6;
-                    padding-top: 20px;
-                }}
-                .companion-ad {{
-                    border: 1px solid #ccc;
-                    margin: 10px auto;
-                    max-width: 300px;
-                    background: white;
-                }}
-                .button-row {{
-                    display: flex;
-                    gap: 10px;
-                    justify-content: center;
-                    margin: 15px 0;
-                    flex-wrap: wrap;
-                }}
-                .action-button {{
-                    background: #6c757d;
-                    color: white;
-                    border: none;
-                    border-radius: 4px;
-                    padding: 8px 16px;
-                    font-size: 12px;
-                    cursor: pointer;
-                    text-decoration: none;
-                    display: inline-block;
-                }}
-                .action-button:hover {{
-                    background: #545b62;
-                }}
-                .action-button.primary {{
-                    background: #007bff;
-                }}
-                .action-button.primary:hover {{
-                    background: #0056b3;
-                }}
-            </style>
-            <script>
-                function copyToClipboard(text) {{
-                    navigator.clipboard.writeText(text).then(function() {{
-                        // Show a brief "Copied!" message
-                        const button = event.target;
-                        const originalText = button.textContent;
-                        button.textContent = 'Copied!';
-                        button.style.background = '#28a745';
-                        setTimeout(function() {{
-                            button.textContent = originalText;
-                            button.style.background = '#007bff';
-                        }}, 1000);
-                    }});
-                }}
-                
-                // Responsive video sizing
-                function resizeVideo() {{
-                    const videoContainer = document.querySelector('.video-container.landscape');
-                    const video = videoContainer ? videoContainer.querySelector('video') : null;
-                    
-                    if (video && videoContainer) {{
-                        const containerWidth = videoContainer.offsetWidth;
-                        const aspectRatio = 16/9;
-                        const calculatedHeight = containerWidth / aspectRatio;
-                        
-                        // Set max height to 70% of viewport height
-                        const maxHeight = window.innerHeight * 0.7;
-                        const finalHeight = Math.min(calculatedHeight, maxHeight);
-                        
-                        videoContainer.style.height = finalHeight + 'px';
-                        video.style.height = '100%';
-                        video.style.width = '100%';
-                    }}
-                }}
-                
-                // Initialize and handle window resize
-                window.addEventListener('load', resizeVideo);
-                window.addEventListener('resize', resizeVideo);
-                
-                // Also resize when video loads
-                document.addEventListener('DOMContentLoaded', function() {{
-                    const video = document.querySelector('video');
-                    if (video) {{
-                        video.addEventListener('loadedmetadata', resizeVideo);
-                    }}
-                }});
-            </script>
-        </head>
-        <body>
-            <div class="vast-container">
-                <div class="preview-header">
-                    🎬 VAST Video Ad Player - {self.selected_creative['size'] if self.selected_creative else 'Unknown'}
-                </div>
-                <div class="info-panel">
-                    <strong>Creative Info:</strong> ID: {self.selected_creative['id'] if self.selected_creative else 'Unknown'}, 
-                    Size: {self.selected_creative['size'] if self.selected_creative else 'Unknown'}, Type: {self.current_type}
-                </div>
-                
-
-                
-                <div class="vast-player">
-                    <div class="video-container{' portrait' if self._is_portrait_video() else ' landscape'}">
-                        <video controls>
-                            <source src="{vast_url}" type="video/mp4">
-                            <source src="{vast_url}" type="video/webm">
-                            <source src="{vast_url}" type="video/ogg">
-                            Your browser does not support the video tag.
-                        </video>
-                    </div>
-                </div>
-                
-                <div class="url-section">
-                    <div class="vast-url{' single' if not click_through_url else ""}">
-                        <button class="copy-button" onclick="copyToClipboard('{vast_url}')">Copy</button>
-                        <strong>🎯 Video URL:</strong><br>
-                        {vast_url}
-                    </div>
-                    
-                </div>
-                
-                {companion_info['html'] if companion_info['found'] else '<div class="companion-section"><h3>🖼️ Companion Ads</h3><p>No Companion</p></div>'}
-            </div>
-        </body>
-        </html>
-        """
-        
-        # Save to temporary file with better error handling
-        import tempfile
-        import os
-        
-        try:
-            # Create temporary file in system temp directory
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
-                f.write(html_content)
-                temp_file = f.name
-            
-            print(f"📄 Created VAST preview file: {temp_file}")
-            print(f"📄 File size: {os.path.getsize(temp_file)} bytes")
-            print(f"🎬 Video URL: {vast_url}")
-            
-            # Open in external browser
-            file_url = f"file://{os.path.abspath(temp_file)}"
-            print(f"🌐 Opening URL: {file_url}")
-            webbrowser.open(file_url)
-            
-        except Exception as e:
-            print(f"❌ Error creating VAST preview: {e}")
-            messagebox.showerror("Error", f"Could not create VAST preview: {e}")
+        # Create HTML content for VAST preview via helper
+        from ui.preview import (
+            build_vast_preview_html,
+            extract_companion_ad_info,
+            is_portrait_video_from_size,
+            save_html_to_temp_and_open,
+        )
+        # Extract companions by combining wrapper and inner InLine VAST
+        inline_vast_xml = self._get_inline_vast_xml_from_markup(self.current_markup)
+        if inline_vast_xml:
+            companion_info = extract_companion_ad_info(inline_vast_xml)
+            if not companion_info.get('found'):
+                # Fallback to wrapper markup too
+                wrapper_try = extract_companion_ad_info(self.current_markup)
+                if wrapper_try.get('found'):
+                    companion_info = wrapper_try
+        else:
+            companion_info = extract_companion_ad_info(self.current_markup)
+        is_portrait = is_portrait_video_from_size(self.selected_creative['size'] if self.selected_creative else None)
+        html_content = build_vast_preview_html(
+            selected_creative=self.selected_creative,
+            current_type=self.current_type,
+            vast_url=vast_url,
+            click_through_url=click_through_url,
+            is_portrait=is_portrait,
+            companion_info_html=companion_info['html'] if companion_info.get('found') else None,
+        )
+        print(f"🎬 Video URL: {vast_url}")
+        save_html_to_temp_and_open(html_content, label='VAST')
     
     def _extract_companion_ad_info(self, markup):
-        """Extract companion ad information from VAST markup"""
-        import re
-        from xml.etree import ElementTree as ET
-        
-        try:
-            # Clean up the markup first (remove CDATA if present)
-            clean_markup = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', markup)
-            
-            # Parse as XML
-            root = ET.fromstring(clean_markup)
-            
-            # Look for CompanionAds
-            companion_ads = root.findall('.//Companion')
-            
-            if not companion_ads:
-                return {'found': False, 'html': ''}
-            
-            companion_html = """
-            <div class="companion-section">
-                <h3>🖼️ Companion Ads</h3>
-            """
-            
-            for i, companion in enumerate(companion_ads):
-                companion_id = companion.get('id', f'companion_{i}')
-                width = companion.get('width', 'Unknown')
-                height = companion.get('height', 'Unknown')
-                
-                # Find StaticResource (image)
-                static_resource = companion.find('.//StaticResource')
-                image_url = static_resource.text.strip() if static_resource is not None and static_resource.text else None
-                
-                # Find CompanionClickThrough
-                click_through = companion.find('.//CompanionClickThrough')
-                click_url = click_through.text.strip() if click_through is not None and click_through.text else None
-                
-                companion_html += f"""
-                <div class="companion-ad">
-                    <div style="padding: 10px; border-bottom: 1px solid #dee2e6;">
-                        <strong>Companion Ad {i+1}</strong> (ID: {companion_id})<br>
-                        Size: {width}x{height}
-                    </div>
-                """
-                
-                if image_url:
-                    companion_html += f"""
-                    <div style="padding: 10px;">
-                        <img src="{image_url}" style="max-width: 100%; height: auto; border: 1px solid #ddd;" alt="Companion Ad">
-                        <div class="vast-url" style="margin-top: 10px;">
-                            <button class="copy-button" onclick="copyToClipboard('{image_url}')">Copy</button>
-                            <strong>🖼️ Image URL:</strong><br>
-                            {image_url}
-                        </div>
-                    </div>
-                    """
-                
-                if click_url:
-                    companion_html += f"""
-                    <div class="vast-url" style="margin: 10px;">
-                        <button class="copy-button" onclick="copyToClipboard('{click_url}')">Copy</button>
-                        <strong>🔗 Click URL:</strong><br>
-                        {click_url}
-                    </div>
-                    """
-                
-                companion_html += "</div>"
-            
-            companion_html += "</div>"
-            
-            return {'found': True, 'html': companion_html}
-            
-        except ET.ParseError as e:
-            print(f"❌ Error parsing VAST for companion ads: {e}")
-            return {'found': False, 'html': ''}
-        except Exception as e:
-            print(f"❌ Error extracting companion ad info: {e}")
-            return {'found': False, 'html': ''}
+        from ui.preview import extract_companion_ad_info
+        return extract_companion_ad_info(markup)
     
     def _is_portrait_video(self):
         """Check if the video is portrait orientation"""
@@ -2186,74 +1577,12 @@ Raw Size: {self.selected_creative['size']}"""
             messagebox.showerror("Error", f"Failed to format XML: {str(e)}")
     
     def _format_xml_element(self, element, indent_level):
-        """Recursively format XML element with proper indentation"""
-        spaces = "    " * indent_level
-        result = ""
-        
-        # Start tag with attributes
-        result += spaces + "<" + element.tag
-        
-        # Add attributes
-        for key, value in element.attrib.items():
-            result += f' {key}="{value}"'
-        
-        # Check if element has children
-        children = list(element)
-        text_content = element.text.strip() if element.text else ""
-        
-        if children or (text_content and len(children) > 0):
-            # Element has children or mixed content
-            result += ">\n"
-            
-            # Add text content if present
-            if text_content:
-                result += spaces + "    " + text_content + "\n"
-            
-            # Add child elements
-            for child in children:
-                result += self._format_xml_element(child, indent_level + 1) + "\n"
-            
-            result += spaces + "</" + element.tag + ">"
-        elif text_content:
-            # Element has only text content
-            result += ">" + text_content + "</" + element.tag + ">"
-        else:
-            # Self-closing element
-            result += "/>"
-        
-        return result
+        from ui.preview import format_xml_element
+        return format_xml_element(element, indent_level)
     
     def _simple_format_xml(self, xml_string):
-        """Simple XML formatting fallback"""
-        # Clean up CDATA sections first
-        xml_string = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', xml_string)
-        
-        # Add line breaks after tags
-        xml_string = xml_string.replace('>', '>\n')
-        xml_string = xml_string.replace('<', '\n<')
-        
-        # Clean up multiple line breaks
-        xml_string = re.sub(r'\n\n+', '\n', xml_string)
-        
-        # Add indentation
-        lines = xml_string.split('\n')
-        indent_level = 0
-        result = []
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            
-            if line.startswith('</'):
-                indent_level = max(0, indent_level - 1)
-            
-            result.append("    " * indent_level + line)
-            
-            if line.startswith('<') and not line.startswith('</') and not line.endswith('/>'):
-                indent_level += 1
-        
-        return '\n'.join(result)
+        from ui.preview import simple_format_xml
+        return simple_format_xml(xml_string)
 
 
         
