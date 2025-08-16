@@ -1,48 +1,38 @@
-name: Build Windows Executable
+name: Build Windows Application
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:
+    branches: [ "main" ]
 
 jobs:
-  build-windows:
+  build:
     runs-on: windows-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
+    - uses: actions/checkout@v3
+
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v3
       with:
-        python-version: '3.11'
-        
-    - name: Show Python version
-      run: python --version
-      
+        python-version: '3.10'
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install databricks-sql requests pyinstaller
-        
-    - name: Test import
+        pip install -r requirements.txt
+
+    - name: Build with PyInstaller
       run: |
-        python -c "from databricks import sql; print('Import successful')"
-        
-    - name: List files
+        pyinstaller --noconfirm --onedir --windowed --name "Creative_Previewer_App" --icon="app_icon.ico" --collect-all numpy --exclude-module matplotlib --exclude-module scipy creative_previewer_app_webview.py
+
+    - name: Package application
       run: |
-        dir
-        dir *.py
-        
-    - name: Build executable
-      run: |
-        pyinstaller --onefile --windowed --name "Creative_Pull_UI" creative_previewer_app_webview.py
-        
+        Compress-Archive -Path dist/Creative_Previewer_App -DestinationPath Creative_Previewer_App_Windows.zip
+
     - name: Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       with:
-        name: Creative_Pull_UI_Windows
-        path: dist/Creative_Pull_UI.exe
+        name: Creative_Previewer_App_Windows
+        path: Creative_Previewer_App_Windows.zip
