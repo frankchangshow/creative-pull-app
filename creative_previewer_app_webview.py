@@ -2377,378 +2377,241 @@ Raw Size: {self.selected_creative['size']}"""
             print(f"❌ {error_msg}")
     
     def show_settings(self):
-        """Show settings dialog for bearer token management"""
-        # Create settings window
+        """Show settings dialog for bearer token management using a tabbed interface."""
         settings_window = tk.Toplevel(self.root)
         settings_window.title("Settings - Bearer Token Management")
-        settings_window.geometry("800x700")
+        settings_window.geometry("800x600")
         settings_window.resizable(True, True)
         settings_window.transient(self.root)
         settings_window.grab_set()
-        
-        # Set minimum size
-        settings_window.minsize(800, 700)
-        
+
         # Center the window
         settings_window.update_idletasks()
         x = (settings_window.winfo_screenwidth() // 2) - (800 // 2)
-        y = (settings_window.winfo_screenheight() // 2) - (700 // 2)
-        settings_window.geometry(f"800x700+{x}+{y}")
-        
-        # Create scrollable main frame
-        canvas = tk.Canvas(settings_window)
-        scrollbar = ttk.Scrollbar(settings_window, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-        
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Bind mouse wheel to canvas
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        
-        canvas.bind("<MouseWheel>", _on_mousewheel)
-        
-        # Pack canvas and scrollbar
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-        
-        # Main frame
-        main_frame = ttk.Frame(scrollable_frame, padding="20")
-        main_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Title
-        title_label = ttk.Label(main_frame, text="🔐 Bearer Token Settings", font=("Arial", 16, "bold"))
-        title_label.pack(pady=(0, 20))
-        
-        # Current token info frame
-        current_frame = ttk.LabelFrame(main_frame, text="Current Token Information", padding="15")
-        current_frame.pack(fill=tk.X, pady=(0, 20))
-        
-        # Load both Databricks and Savanna token info
+        y = (settings_window.winfo_screenheight() // 2) - (600 // 2)
+        settings_window.geometry(f"800x600+{x}+{y}")
+
+        # Create a Notebook (tabbed interface)
+        notebook = ttk.Notebook(settings_window)
+        notebook.pack(expand=True, fill='both', padx=10, pady=10)
+
+        # Create frames for each tab
+        savanna_tab = ttk.Frame(notebook, padding="10")
+        databricks_tab = ttk.Frame(notebook, padding="10")
+
+        notebook.add(savanna_tab, text='Savanna Token (Creative Pulling)')
+        notebook.add(databricks_tab, text='Databricks Token (Main App)')
+
+        # Populate each tab
+        self._populate_savanna_tab(savanna_tab)
+        self._populate_databricks_tab(databricks_tab)
+
+    def _get_token_details(self, token):
+        """Decodes a JWT token and returns its details as a dictionary."""
         try:
-            # 1. DATABRICKS TOKEN (Main app token)
-            ttk.Label(current_frame, text="🔗 Databricks Token (Main App):", 
-                     font=("Arial", 11, "bold")).pack(anchor=tk.W, pady=(5, 0))
+            from savanna_bearer_client import SavannaBearerClient
+            client = SavannaBearerClient() # Create an instance
+            payload = client._decode_jwt_token(token)
+            if not payload:
+                return {"error": "Could not decode JWT token"}
+
+            expiry_time = datetime.fromtimestamp(payload.get('exp', 0))
+            issued_time = datetime.fromtimestamp(payload.get('iat', 0))
+            current_time = datetime.now()
+            time_until_expiry = (expiry_time - current_time).total_seconds()
             
-            if hasattr(self, 'access_token') and self.access_token:
-                databricks_token_preview = f"{self.access_token[:20]}...{self.access_token[-20:]}"
-                ttk.Label(current_frame, text=f"Token: {databricks_token_preview}", 
-                         font=("Arial", 10), foreground="blue").pack(anchor=tk.W, pady=(0, 5))
-                ttk.Label(current_frame, text="✅ Status: Valid (App is working)", 
-                         font=("Arial", 10), foreground="green").pack(anchor=tk.W, pady=(0, 5))
-                
-                # Try to get Databricks token expiration info
-                try:
-                    # Databricks tokens don't have built-in expiration, but we can show when it was last used
-                    ttk.Label(current_frame, text="ℹ️ Note: Databricks tokens don't expire automatically", 
-                             font=("Arial", 9), foreground="gray").pack(anchor=tk.W, pady=(0, 5))
-                except Exception as e:
-                    print(f"⚠️ Could not get Databricks token info: {e}")
-            else:
-                ttk.Label(current_frame, text="❌ No Databricks token found", 
-                         font=("Arial", 10), foreground="red").pack(anchor=tk.W, pady=(0, 5))
+            hours_remaining = round(time_until_expiry / 3600, 1) if time_until_expiry > 0 else 0
             
-            # Separator
-            ttk.Separator(current_frame, orient='horizontal').pack(fill=tk.X, pady=10)
-            
-            # 2. SAVANNA TOKEN (Creative pulling)
-            ttk.Label(current_frame, text="🎯 Savanna Token (Creative Pulling):", 
-                     font=("Arial", 11, "bold")).pack(anchor=tk.W, pady=(5, 0))
-            
-            # Use the existing SavannaBearerClient instance from the main app
-            if hasattr(self, 'savanna_client') and self.savanna_client:
-                client = self.savanna_client
-                print(f"🔍 Using existing Savanna client with token: {client.bearer_token[:20]}...{client.bearer_token[-20:] if client.bearer_token else 'None'}")
-            else:
-                print("⚠️ No existing Savanna client found, creating new one")
-                from savanna_bearer_client import SavannaBearerClient
-                client = SavannaBearerClient()
-            
-            # Get Savanna token info using the working method from the logs
-            try:
-                # Use the same validation method that's working in the terminal logs
-                if hasattr(client, '_decode_jwt_token') and client.bearer_token:
-                    # Decode the JWT token directly like the working method does
-                    payload = client._decode_jwt_token(client.bearer_token)
-                    if payload:
-                        # Calculate expiration like the working method
-                        expiry_time = datetime.fromtimestamp(payload.get('exp', 0))
-                        issued_time = datetime.fromtimestamp(payload.get('iat', 0))
-                        current_time = datetime.now()
-                        
-                        time_until_expiry = (expiry_time - current_time).total_seconds()
-                        is_valid = time_until_expiry > 0
-                        
-                        # Format the times nicely
-                        issued_str = issued_time.strftime('%Y-%m-%d %H:%M:%S UTC')
-                        expiry_str = expiry_time.strftime('%Y-%m-%d %H:%M:%S UTC')
-                        
-                        if time_until_expiry > 0:
-                            hours_remaining = round(time_until_expiry / 3600, 1)
-                            time_remaining_str = f"{hours_remaining} hours"
-                        else:
-                            time_remaining_str = "Expired"
-                        
-                        # Display the correct token info
-                        status_text = "✅ Valid" if is_valid else "❌ Expired"
-                        status_color = "green" if is_valid else "red"
-                        
-                        ttk.Label(current_frame, text=f"Status: {status_text}", 
-                                 font=("Arial", 10), foreground=status_color).pack(anchor=tk.W, pady=(0, 5))
-                        
-                        # Show Savanna token preview
-                        if hasattr(client, 'bearer_token') and client.bearer_token:
-                            token_preview = f"{client.bearer_token[:20]}...{client.bearer_token[-20:]}"
-                            ttk.Label(current_frame, text=f"Token: {token_preview}", 
-                                     font=("Arial", 10), foreground="blue").pack(anchor=tk.W, pady=(0, 5))
-                        
-                        # Show user info from decoded payload
-                        user_email = payload.get('user', 'Unknown')
-                        ttk.Label(current_frame, text=f"User: {user_email}", 
-                                 font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
-                        
-                        # Show roles from decoded payload
-                        roles = payload.get('roles', [])
-                        if roles:
-                            ttk.Label(current_frame, text=f"Roles: {', '.join(roles)}", 
-                                     font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
-                        
-                        # Show timing information
-                        ttk.Label(current_frame, text=f"Issued: {issued_str}", 
-                                 font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
-                        ttk.Label(current_frame, text=f"Expires: {expiry_str}", 
-                                 font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
-                        
-                        if time_until_expiry > 0:
-                            ttk.Label(current_frame, text=f"Time Remaining: {time_remaining_str}", 
-                                     font=("Arial", 10), foreground="green").pack(anchor=tk.W, pady=(0, 5))
-                        else:
-                            ttk.Label(current_frame, text="Token has expired", 
-                                     font=("Arial", 10), foreground="red").pack(anchor=tk.W, pady=(0, 5))
-                    else:
-                        ttk.Label(current_frame, text="❌ Could not decode JWT token", 
-                                 font=("Arial", 10), foreground="red").pack(anchor=tk.W, pady=(0, 5))
-                else:
-                    # Fallback to the old method if _decode_jwt_token not available
-                    token_info = client.get_token_info()
-                    print(f"🔍 Fallback token info received: {token_info}")
-                    
-                    if 'error' in token_info:
-                        ttk.Label(current_frame, text=f"❌ Error: {token_info['error']}", 
-                                 font=("Arial", 10), foreground="red").pack(anchor=tk.W, pady=(0, 5))
-                    else:
-                        # Display fallback token details
-                        is_valid = token_info.get('valid', False)
-                        status_text = "✅ Valid" if is_valid else "❌ Expired"
-                        status_color = "green" if is_valid else "red"
-                        
-                        ttk.Label(current_frame, text=f"Status: {status_text}", 
-                                 font=("Arial", 10), foreground=status_color).pack(anchor=tk.W, pady=(0, 5))
-                        
-                        # Show other info from fallback method
-                        if 'user' in token_info:
-                            ttk.Label(current_frame, text=f"User: {token_info['user']}", 
-                                     font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
-                        
-                        if 'expires_at' in token_info:
-                            ttk.Label(current_frame, text=f"Expires: {token_info['expires_at']}", 
-                                     font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 5))
-                        
-                        if 'time_remaining' in token_info:
-                            time_remaining = token_info['time_remaining']
-                            if time_remaining != "Expired":
-                                ttk.Label(current_frame, text=f"Time Remaining: {time_remaining}", 
-                                         font=("Arial", 10), foreground="green").pack(anchor=tk.W, pady=(0, 5))
-                            else:
-                                ttk.Label(current_frame, text="Token has expired", 
-                                         font=("Arial", 10), foreground="red").pack(anchor=tk.W, pady=(0, 5))
-                        
-            except Exception as e:
-                print(f"❌ Error in Savanna token validation: {e}")
-                ttk.Label(current_frame, text=f"❌ Error validating token: {str(e)}", 
-                         font=("Arial", 10), foreground="red").pack(anchor=tk.W, pady=(0, 5))
-                
+            return {
+                "valid": time_until_expiry > 0,
+                "user": payload.get('user', 'Unknown'),
+                "roles": ", ".join(payload.get('roles', [])),
+                "issued": issued_time.strftime('%Y-%m-%d %H:%M:%S UTC'),
+                "expires": expiry_time.strftime('%Y-%m-%d %H:%M:%S UTC'),
+                "remaining": f"{hours_remaining} hours" if hours_remaining > 0 else "Expired"
+            }
         except Exception as e:
-            ttk.Label(current_frame, text=f"Error loading token info: {str(e)}", 
-                     font=("Arial", 10), foreground="red").pack(anchor=tk.W, pady=(0, 5))
+            return {"error": str(e)}
+
+    def _populate_savanna_tab(self, tab):
+        """Populates the Savanna token management tab."""
         
-        # Update token frame
-        update_frame = ttk.LabelFrame(main_frame, text="Update Bearer Token", padding="15")
-        update_frame.pack(fill=tk.X, pady=(0, 20))
+        # --- CURRENT TOKEN INFO ---
+        current_frame = ttk.LabelFrame(tab, text="Current Token Information", padding="15")
+        current_frame.pack(fill=tk.X, pady=(0, 20), expand=True)
+
+        token_display_frame = ttk.Frame(current_frame)
+        token_display_frame.pack(fill=tk.X, expand=True)
+
+        def refresh_token_display():
+            for widget in token_display_frame.winfo_children():
+                widget.destroy()
+
+            from savanna_bearer_client import SavannaBearerClient
+            client = SavannaBearerClient()
+            token = client.bearer_token
+            
+            if not token:
+                ttk.Label(token_display_frame, text="❌ No Savanna token found in config.ini", foreground="red").pack(anchor=tk.W)
+                return
+
+            details = self._get_token_details(token)
+
+            if "error" in details:
+                ttk.Label(token_display_frame, text=f"❌ Error: {details['error']}", foreground="red").pack(anchor=tk.W)
+            else:
+                status_text = "✅ Valid" if details['valid'] else "❌ Expired"
+                status_color = "green" if details['valid'] else "red"
+                
+                ttk.Label(token_display_frame, text=f"Status: {status_text}", foreground=status_color).pack(anchor=tk.W)
+                token_preview = f"{token[:20]}...{token[-20:]}"
+                ttk.Label(token_display_frame, text=f"Token: {token_preview}", foreground="blue").pack(anchor=tk.W)
+                ttk.Label(token_display_frame, text=f"User: {details['user']}").pack(anchor=tk.W)
+                ttk.Label(token_display_frame, text=f"Roles: {details['roles']}").pack(anchor=tk.W)
+                ttk.Label(token_display_frame, text=f"Issued: {details['issued']}").pack(anchor=tk.W)
+                ttk.Label(token_display_frame, text=f"Expires: {details['expires']}").pack(anchor=tk.W)
+                time_remaining_color = "green" if details['valid'] else "red"
+                ttk.Label(token_display_frame, text=f"Time Remaining: {details['remaining']}", foreground=time_remaining_color).pack(anchor=tk.W)
+
+        refresh_token_display()
+
+        # --- UPDATE TOKEN ---
+        update_frame = ttk.LabelFrame(tab, text="Update Bearer Token", padding="15")
+        update_frame.pack(fill=tk.X, pady=(0, 20), expand=True)
         
-        # HAR file upload section
-        har_frame = ttk.Frame(update_frame)
-        har_frame.pack(fill=tk.X, pady=(0, 15))
+        token_var = tk.StringVar()
         
-        ttk.Label(har_frame, text="📁 Or upload HAR file to extract token:", 
-                 font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(0, 5))
-        
-        har_button_frame = ttk.Frame(har_frame)
-        har_button_frame.pack(fill=tk.X)
+        # HAR upload
+        ttk.Label(update_frame, text="📁 Upload HAR file to extract token:").pack(anchor=tk.W, pady=(0, 5))
         
         def upload_har_file():
-            """Upload HAR file and extract token"""
-            try:
-                # Browse for HAR file
-                file_path = filedialog.askopenfilename(
-                    title="Select HAR File",
-                    filetypes=[("HAR files", "*.har"), ("All files", "*.*")]
-                )
-                
-                if not file_path:
-                    return
-                
-                # Extract token from HAR file
+            file_path = filedialog.askopenfilename(filetypes=[("HAR files", "*.har")])
+            if file_path:
                 token = self.extract_token_from_har(file_path)
                 if token:
-                    # Auto-fill the token input
                     token_var.set(token)
-                    messagebox.showinfo("Success", f"✅ Token extracted from HAR file!\n\nToken: {token[:30]}...{token[-30:]}\n\nYou can now test and update it.")
+                    messagebox.showinfo("Success", "Token extracted from HAR file.")
                 else:
-                    messagebox.showwarning("Warning", "No valid token found in HAR file")
-                    
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to extract token from HAR: {str(e)}")
+                    messagebox.showwarning("Not Found", "No bearer token found in the HAR file.")
+
+        ttk.Button(update_frame, text="Upload HAR File", command=upload_har_file).pack(anchor=tk.W, pady=(0, 10))
+
+        # Manual entry
+        ttk.Label(update_frame, text="Enter new bearer token:").pack(anchor=tk.W, pady=(5, 5))
+        token_entry = ttk.Entry(update_frame, textvariable=token_var, width=80, show="*")
+        token_entry.pack(fill=tk.X, expand=True, pady=(0, 10))
         
-        ttk.Button(har_button_frame, text="📁 Upload HAR File", 
-                   command=upload_har_file, width=20).pack(side=tk.LEFT, padx=(0, 10))
-        
-        # Manual token input section
-        ttk.Label(update_frame, text="Enter new bearer token:").pack(anchor=tk.W, pady=(0, 5))
-        
-        # Token input
-        token_var = tk.StringVar()
-        token_entry = ttk.Entry(update_frame, textvariable=token_var, width=60, show="*")
-        token_entry.pack(fill=tk.X, pady=(0, 10))
-        
-        # Buttons frame
         button_frame = ttk.Frame(update_frame)
-        button_frame.pack(fill=tk.X)
-        
-        def update_token():
-            """Update the bearer token"""
+        button_frame.pack(fill=tk.X, expand=True)
+
+        def test_savanna_token():
             new_token = token_var.get().strip()
             if not new_token:
-                messagebox.showwarning("Warning", "Please enter a bearer token")
+                messagebox.showwarning("Input Required", "Please enter a token to test.")
                 return
             
+            details = self._get_token_details(new_token)
+            if "error" in details:
+                messagebox.showerror("Test Failed", f"Error: {details['error']}")
+            else:
+                details_str = "\n".join([f"{k.capitalize()}: {v}" for k, v in details.items()])
+                messagebox.showinfo("Token Test Result", f"Token Details:\n\n{details_str}")
+
+        def update_savanna_token():
+            new_token = token_var.get().strip()
+            if not new_token:
+                messagebox.showwarning("Input Required", "Please enter a token to update.")
+                return
+
             try:
-                # Update config.ini
+                config_path = os.path.join(os.path.expanduser("~"), ".creative_pull_app", "config.ini")
                 config = configparser.ConfigParser()
-                config.read('config.ini')
-                
+                config.read(config_path)
                 if 'SAVANNA' not in config:
                     config.add_section('SAVANNA')
-                
                 config['SAVANNA']['bearer_token'] = new_token
-                
-                with open('config.ini', 'w') as configfile:
+                with open(config_path, 'w') as configfile:
                     config.write(configfile)
                 
-                messagebox.showinfo("Success", "Bearer token updated successfully!\n\nPlease restart the app for changes to take effect.")
-                settings_window.destroy()
+                # Update the client in the main app instance
+                if hasattr(self, 'savanna_client'):
+                    self.savanna_client.bearer_token = new_token
                 
+                messagebox.showinfo("Success", "Savanna token updated successfully.")
+                refresh_token_display()
+                token_var.set("")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to update token: {str(e)}")
+                messagebox.showerror("Error", f"Failed to update token: {e}")
+
+        ttk.Button(button_frame, text="🧪 Test Token", command=test_savanna_token).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="💾 Update Token", command=update_savanna_token).pack(side=tk.LEFT)
+
+    def _populate_databricks_tab(self, tab):
+        """Populates the Databricks token management tab."""
         
-        def test_token():
-            """Test the new token"""
+        # --- CURRENT TOKEN INFO ---
+        current_frame = ttk.LabelFrame(tab, text="Current Token Information", padding="15")
+        current_frame.pack(fill=tk.X, pady=(0, 20), expand=True)
+        
+        token_display_frame = ttk.Frame(current_frame)
+        token_display_frame.pack(fill=tk.X, expand=True)
+
+        def refresh_databricks_display():
+            for widget in token_display_frame.winfo_children():
+                widget.destroy()
+
+            if hasattr(self, 'access_token') and self.access_token:
+                databricks_token_preview = f"{self.access_token[:20]}...{self.access_token[-20:]}"
+                ttk.Label(token_display_frame, text=f"🔗 Token: {databricks_token_preview}", foreground="blue").pack(anchor=tk.W)
+                ttk.Label(token_display_frame, text="✅ Status: Valid (App is working)", foreground="green").pack(anchor=tk.W)
+                ttk.Label(token_display_frame, text="ℹ️ Note: Databricks tokens don't expire automatically.", foreground="gray").pack(anchor=tk.W)
+            else:
+                ttk.Label(token_display_frame, text="❌ No Databricks token found.", foreground="red").pack(anchor=tk.W)
+        
+        refresh_databricks_display()
+
+        # --- UPDATE TOKEN ---
+        update_frame = ttk.LabelFrame(tab, text="Update Databricks Token", padding="15")
+        update_frame.pack(fill=tk.X, pady=(0, 20), expand=True)
+
+        ttk.Label(update_frame, text="Enter new Databricks PAT:").pack(anchor=tk.W, pady=(0, 5))
+        token_var = tk.StringVar()
+        token_entry = ttk.Entry(update_frame, textvariable=token_var, width=80, show="*")
+        token_entry.pack(fill=tk.X, pady=(0, 10))
+        
+        button_frame = ttk.Frame(update_frame)
+        button_frame.pack(fill=tk.X)
+
+        def test_databricks_token():
             new_token = token_var.get().strip()
             if not new_token:
-                messagebox.showwarning("Warning", "Please enter a bearer token")
+                messagebox.showwarning("Input Required", "Please enter a token to test.")
                 return
             
+            # Simple validation check
+            if new_token.startswith("dapi") and len(new_token) > 20:
+                 messagebox.showinfo("Test Result", "✅ Token format appears valid.\n\nNote: This is a basic format check. A full connection test requires an app restart.")
+            else:
+                 messagebox.showerror("Test Result", "❌ Token format appears invalid. It should start with 'dapi'.")
+
+        def update_databricks_token():
+            new_token = token_var.get().strip()
+            if not (new_token.startswith("dapi") and len(new_token) > 20):
+                messagebox.showwarning("Invalid Token", "Please enter a valid Databricks token (starts with 'dapi').")
+                return
+
             try:
-                # Test the token
-                from savanna_bearer_client import SavannaBearerClient
-                test_client = SavannaBearerClient()
-                test_client.bearer_token = new_token
-                
-                # Test API call
-                response = test_client.session.get("https://savanna.fyber.com/ad-networks", 
-                                                params={"$limit": "1"}, timeout=10)
-                
-                if response.status_code == 200:
-                    # Decode the new token to show its details
-                    token_details = ""
-                    try:
-                        if hasattr(test_client, '_decode_jwt_token') and new_token:
-                            payload = test_client._decode_jwt_token(new_token)
-                            if payload:
-                                # Calculate expiration
-                                expiry_time = datetime.fromtimestamp(payload.get('exp', 0))
-                                issued_time = datetime.fromtimestamp(payload.get('iat', 0))
-                                current_time = datetime.now()
-                                
-                                time_until_expiry = (expiry_time - current_time).total_seconds()
-                                is_valid = time_until_expiry > 0
-                                
-                                # Format the times nicely
-                                issued_str = issued_time.strftime('%Y-%m-%d %H:%M:%S UTC')
-                                expiry_str = expiry_time.strftime('%Y-%m-%d %H:%M:%S UTC')
-                                
-                                if time_until_expiry > 0:
-                                    hours_remaining = round(time_until_expiry / 3600, 1)
-                                    time_remaining_str = f"{hours_remaining} hours"
-                                else:
-                                    time_remaining_str = "Expired"
-                                
-                                # Build detailed token info
-                                token_details = f"""
-✅ Token is valid!
-
-🔍 Token Details:
-• User: {payload.get('user', 'Unknown')}
-• Roles: {', '.join(payload.get('roles', []))}
-• Issued: {issued_str}
-• Expires: {expiry_str}
-• Time Remaining: {time_remaining_str}
-
-💾 You can now save it using the 'Update Token' button."""
-                            else:
-                                token_details = "✅ Token is valid!\n\n🔍 Could not decode token details\n\n💾 You can now save it using the 'Update Token' button."
-                        else:
-                            token_details = "✅ Token is valid!\n\n🔍 Could not decode token details\n\n💾 You can now save it using the 'Update Token' button."
-                    except Exception as decode_error:
-                        print(f"⚠️ Could not decode token details: {decode_error}")
-                        token_details = "✅ Token is valid!\n\n🔍 Could not decode token details\n\n💾 You can now save it using the 'Update Token' button."
-                    
-                    messagebox.showinfo("Success", token_details)
-                else:
-                    messagebox.showerror("Error", f"❌ Token test failed: {response.status_code}\n\nPlease check your token and try again.")
-                    
+                self.save_token_to_config(new_token)
+                self.access_token = new_token # Update token in current session
+                messagebox.showinfo("Success", "Databricks token updated successfully.\nChanges will be fully applied on next app start.")
+                refresh_databricks_display()
+                token_var.set("")
             except Exception as e:
-                messagebox.showerror("Error", f"❌ Token test failed: {str(e)}\n\nPlease check your token and try again.")
-        
-        # Test and Update buttons
-        ttk.Button(button_frame, text="🧪 Test Token", command=test_token, width=15).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(button_frame, text="💾 Update Token", command=update_token, width=15).pack(side=tk.LEFT)
-        
-        # Instructions
-        instructions_frame = ttk.LabelFrame(main_frame, text="Instructions", padding="15")
-        instructions_frame.pack(fill=tk.X, pady=(0, 20))
-        
-        instructions_text = """1. Copy your new bearer token from Savanna
-2. Paste it in the input field above
-3. Click "Test Token" to verify it works
-4. Click "Update Token" to save it
-5. Restart the app for changes to take effect
+                messagebox.showerror("Error", f"Failed to update token: {e}")
 
-💡 Tip: You can get a new token by logging into Savanna and checking the network requests in your browser's developer tools."""
-        
-        instructions_label = ttk.Label(instructions_frame, text=instructions_text, 
-                                     font=("Arial", 9), justify=tk.LEFT)
-        instructions_label.pack(anchor=tk.W)
-        
-        # Close button
-        ttk.Button(main_frame, text="Close", command=settings_window.destroy, width=15).pack(pady=(20, 0))
-    
+        ttk.Button(button_frame, text="🧪 Test Token", command=test_databricks_token).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="💾 Update Token", command=update_databricks_token).pack(side=tk.LEFT)
+
     def format_xml(self):
         """Format XML markup in the text area"""
         if not self.current_markup:

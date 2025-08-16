@@ -1,4 +1,4 @@
-databricks-sql
+databricks-sql-connector
 requests
 pyinstaller
-tkinter
+pandas

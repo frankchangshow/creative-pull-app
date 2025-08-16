@@ -1,58 +1,18 @@
-# Build directories
-dist/
-dist_windows/
+# Build artifacts
 build/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# PyInstaller files
+dist/
 *.spec
-*.exe
-*.app
-*.dmg
+*.zip
+*.app/
+Creative_Previewer_App_Distribution/
 
-# macOS app bundles and large files
-Creative_Pull_App_macOS_v4/Creative_Pull_App_macOS
-Creative_Pull_App_macOS_v4/Launch_App.sh
-*.app/Contents/MacOS/*
-*.app/Contents/Frameworks/*
-
-# Temporary files
-*.tmp
-*.temp
-*.log
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS files
-.DS_Store
-Thumbs.db
+# Python virtual environment
+build_venv/
 
 # Python cache
-*.pyc
-*.pyo
 __pycache__/
-.pytest_cache/
+*.pyc
 
-# Virtual environments
-venv/
-env/
-ENV/
-
-# Large data files
-*.csv
-*.json
-*.xml
-*.zip
-*.tar.gz
-
-# Databricks credentials (security)
-config.ini
-.env
-node_modules
+# Node.js dependencies
+node_modules/
+functions/node_modules/

@@ -1,0 +1,23 @@
+[debug] [2025-05-13T19:21:32.997Z] ----------------------------------------------------------------------
+[debug] [2025-05-13T19:21:32.998Z] Command:       /opt/homebrew/Cellar/node/23.7.0/bin/node /opt/homebrew/bin/firebase hosting:disable
+[debug] [2025-05-13T19:21:32.999Z] CLI Version:   14.2.0
+[debug] [2025-05-13T19:21:32.999Z] Platform:      darwin
+[debug] [2025-05-13T19:21:32.999Z] Node Version:  v23.7.0
+[debug] [2025-05-13T19:21:32.999Z] Time:          Tue May 13 2025 12:21:32 GMT-0700 (Pacific Daylight Time)
+[debug] [2025-05-13T19:21:32.999Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-05-13T19:21:33.081Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-05-13T19:21:33.081Z] > authorizing via signed-in user (frank.chang@digitalturbine.com)
+[debug] [2025-05-13T19:21:33.081Z] [iam] checking project fyber-sandbox for permissions ["firebase.projects.get","firebasehosting.sites.update"]
+[debug] [2025-05-13T19:21:33.082Z] Checked if tokens are valid: true, expires at: 1747167633369
+[debug] [2025-05-13T19:21:33.082Z] Checked if tokens are valid: true, expires at: 1747167633369
+[debug] [2025-05-13T19:21:33.082Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/fyber-sandbox:testIamPermissions [none]
+[debug] [2025-05-13T19:21:33.082Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/fyber-sandbox:testIamPermissions x-goog-quota-user=projects/fyber-sandbox
+[debug] [2025-05-13T19:21:33.082Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/fyber-sandbox:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2025-05-13T19:21:33.412Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/fyber-sandbox:testIamPermissions 200
+[debug] [2025-05-13T19:21:33.412Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/fyber-sandbox:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2025-05-13T19:21:33.413Z] Checked if tokens are valid: true, expires at: 1747167633369
+[debug] [2025-05-13T19:21:33.413Z] Checked if tokens are valid: true, expires at: 1747167633369
+[debug] [2025-05-13T19:21:33.413Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/fyber-sandbox [none]
+[debug] [2025-05-13T19:21:33.683Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/fyber-sandbox 200
+[debug] [2025-05-13T19:21:33.684Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/fyber-sandbox {"projectId":"fyber-sandbox","projectNumber":"1040447732718","displayName":"Fyber Sandbox","name":"projects/fyber-sandbox","resources":{"hostingSite":"fyber-sandbox"},"state":"ACTIVE","etag":"1_5b1e42b9-8367-4653-b40c-670b008b1a86"}

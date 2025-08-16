@@ -1,0 +1,21 @@
+date,description,amount,category,type
+2024-05-01,Paycheck,3000,Income,credit
+2024-05-02,Rent,-1200,Fixed,debit
+2024-05-03,Groceries,-150,Variable,debit
+2024-05-04,Amazon,-80,Variable,debit
+2024-05-05,Utilities,-200,Fixed,debit
+2024-05-06,Restaurant,-60,Variable,debit
+2024-05-07,Internet,-70,Fixed,debit
+2024-05-08,Gas,-50,Variable,debit
+2024-05-09,Paycheck,3000,Income,credit
+2024-05-10,Phone Bill,-90,Fixed,debit
+2024-05-11,Target,-120,Variable,debit
+2024-05-12,Insurance,-250,Fixed,debit
+2024-05-13,Starbucks,-15,Variable,debit
+2024-05-14,Groceries,-130,Variable,debit
+2024-05-15,Paycheck,3000,Income,credit
+2024-05-16,Car Payment,-400,Fixed,debit
+2024-05-17,Uber Eats,-45,Variable,debit
+2024-05-18,Spotify,-10,Fixed,debit
+2024-05-19,Clothing,-100,Variable,debit
+2024-05-20,Medical,-60,Variable,debit 
