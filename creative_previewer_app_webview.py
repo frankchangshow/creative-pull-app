@@ -427,10 +427,12 @@ class CreativePreviewerApp:
     def _unified_search_thread(self, creative_id):
         """Search for creative ID in background thread"""
         try:
-            # Use Databricks client
+            # Use Databricks client via service wrapper
             from clients.databricks_client import DatabricksClient
+            from services.savanna_actions import search_creative_in_queue
             client = DatabricksClient()
-            results = client.search_pulling_queue(
+            results = search_creative_in_queue(
+                client,
                 DATABRICKS_SERVER_HOSTNAME,
                 DATABRICKS_HTTP_PATH,
                 self.access_token,
@@ -489,24 +491,9 @@ class CreativePreviewerApp:
                 self.root.after(0, lambda: self._unified_save_completed("❌ Savanna client not available", False))
                 return
             
-            savanna_client = self.savanna_client
-            
-            # Calculate dates
-            now = datetime.now()
-            creation_date = now.strftime('%Y-%m-%d %H:%M:%S')
-            expire_date = (now + timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
-            
-            # Prepare creative data matching the actual table schema
-            creative_data = {
-                "creative_id": creative_id,
-                "ad_network_id": int(ad_network_id),
-                "creation_date": creation_date,
-                "expire_date": expire_date,
-                "active": True
-            }
-            
-            # Save to Savanna
-            result = savanna_client.post_to_creative_pulling(creative_data)
+            from services.savanna_actions import build_creation_and_expire_dates, submit_creative
+            creation_date, expire_date = build_creation_and_expire_dates()
+            result = submit_creative(self.savanna_client, creative_id, int(ad_network_id), creation_date, expire_date, True)
             
             if result:
                 success_msg = f"✅ SUCCESS: Creative ID '{creative_id}' submitted to Savanna!\n\n"
@@ -584,24 +571,9 @@ class CreativePreviewerApp:
                 self.save_creative_button.config(state='normal')
                 return
             
-            savanna_client = self.savanna_client
-            
-            # Calculate dates
-            now = datetime.now()
-            creation_date = now.strftime('%Y-%m-%d %H:%M:%S')
-            expire_date = (now + timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
-            
-            # Prepare creative data matching the actual table schema
-            creative_data = {
-                "creative_id": creative_id,
-                "ad_network_id": int(ad_network_id),
-                "creation_date": creation_date,
-                "expire_date": expire_date,
-                "active": True
-            }
-            
-            # Save to Savanna
-            result = savanna_client.post_to_creative_pulling(creative_data)
+            from services.savanna_actions import build_creation_and_expire_dates, submit_creative
+            creation_date, expire_date = build_creation_and_expire_dates()
+            result = submit_creative(self.savanna_client, creative_id, int(ad_network_id), creation_date, expire_date, True)
             
             if result:
                 success_msg = f"✅ SUCCESS: Creative ID '{creative_id}' submitted to Savanna!\n\n"
@@ -1206,103 +1178,9 @@ Raw Size: {self.selected_creative['size']}"""
             self.markup_text.insert(1.0, self.current_markup)
     
     def parse_ad_response(self, xml_string):
-        """Parse ad response XML - same logic as React app"""
-        if not xml_string:
-            return {'error': 'No XML content provided'}
-        
-        print(f"🔍 Parsing XML string of length: {len(xml_string)}")
-        print(f"📄 First 200 chars: {xml_string[:200]}...")
-        
-        try:
-            # Parse XML
-            root = ET.fromstring(xml_string)
-            
-            # Extract dimensions and type
-            width = None
-            height = None
-            ad_type = None
-            
-            # Look for namespace-aware elements
-            TNS_NAMESPACE_URI = "http://www.inner-active.com/SimpleM2M/M2MResponse"
-            
-            # Try to find elements with namespace
-            width_elem = root.find(f'.//{{{TNS_NAMESPACE_URI}}}AdWidth')
-            height_elem = root.find(f'.//{{{TNS_NAMESPACE_URI}}}AdHeight')
-            type_elem = root.find(f'.//{{{TNS_NAMESPACE_URI}}}AdType')
-            
-            if width_elem is not None:
-                width = width_elem.get('Value')
-            if height_elem is not None:
-                height = height_elem.get('Value')
-            if type_elem is not None:
-                ad_type = type_elem.get('Value')
-            
-            print(f"📏 Width: {width}, Height: {height}, Type: {ad_type}")
-            
-            # Find Ad element
-            ad_elem = root.find(f'.//{{{TNS_NAMESPACE_URI}}}Ad')
-            if ad_elem is None:
-                ad_elem = root.find('.//Ad')  # Fallback without namespace
-            
-            if ad_elem is None:
-                return {'error': 'No Ad element found'}
-            
-            print("✅ Found Ad element")
-            
-            # Extract CDATA content
-            cdata_content = None
-            print("🔍 Looking for CDATA content...")
-            
-            # Look for CDATA sections
-            for child in ad_elem:
-                if child.tag is ET.Comment:
-                    continue
-                if child.text and child.text.strip():
-                    cdata_content = child.text.strip()
-                    break
-            
-            # Fallback to text content
-            if not cdata_content:
-                cdata_content = ad_elem.text.strip() if ad_elem.text else ""
-                print(f"📝 Using text content: {len(cdata_content)} chars")
-            
-            if not cdata_content:
-                return {'error': 'No CDATA content found'}
-            
-            # Process based on AdType
-            if ad_type == '4':  # Display Ad
-                print("✅ Processed as display ad")
-                creative = self.decode_html_entities(cdata_content)
-                return {
-                    'type': 'display',
-                    'creative': creative,
-                    'width': width,
-                    'height': height
-                }
-            elif ad_type == '8':  # VAST Ad
-                print("✅ Processed as VAST ad")
-                creative = self.decode_html_entities(cdata_content)
-                return {
-                    'type': 'vast',
-                    'creative': creative,
-                    'width': width,
-                    'height': height
-                }
-            else:
-                # Unknown type - try to determine from content
-                print(f"🎯 Final result - Type: display, Creative length: {len(cdata_content)}")
-                creative = self.decode_html_entities(cdata_content)
-                return {
-                    'type': 'display',
-                    'creative': creative,
-                    'width': width,
-                    'height': height
-                }
-                
-        except ET.ParseError as e:
-            return {'error': f'XML parsing error: {str(e)}'}
-        except Exception as e:
-            return {'error': f'Unexpected error: {str(e)}'}
+        """Delegate XML parsing to a stateless helper for clarity."""
+        from utils.markup_parser import parse_ad_response as _parse
+        return _parse(xml_string)
     
     def decode_html_entities(self, text):
         from ui.preview import decode_html_entities as _decode
