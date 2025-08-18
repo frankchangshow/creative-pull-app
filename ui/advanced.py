@@ -118,6 +118,14 @@ def create_unified_savanna_section(container, app):
 	app.network_status_label = ttk.Label(app.ad_network_frame, text="Type to search networks or enter ID manually", font=("Arial", 8), foreground="gray")
 	app.network_status_label.pack(anchor=tk.W, pady=(0, 5))
 
+	# Email for watchlist notifications (used in Save mode)
+	app.email_frame = ttk.Frame(input_frame)
+	app.email_frame.pack(anchor=tk.W, pady=(0, 10))
+	ttk.Label(app.email_frame, text="Notification Email (optional):").pack(anchor=tk.W)
+	app.unified_email_var = tk.StringVar()
+	app.unified_email_entry = ttk.Entry(app.email_frame, textvariable=app.unified_email_var, width=30)
+	app.unified_email_entry.pack(anchor=tk.W, pady=(2, 0))
+
 	button_frame = ttk.Frame(savanna_frame)
 	button_frame.pack(fill=tk.X, padx=5, pady=5)
 

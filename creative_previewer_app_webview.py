@@ -54,9 +54,22 @@ class CreativePreviewerApp:
         self.access_token = load_configuration()
         
         # Initialize Savanna client
+        self._savanna_token_info_shown = False
         try:
             from savanna_bearer_client import SavannaBearerClient
             self.savanna_client = SavannaBearerClient()
+            # One-time info dialog if expired
+            try:
+                if getattr(self.savanna_client, 'bearer_token', None):
+                    is_expired, _ = self.savanna_client._is_token_expired(self.savanna_client.bearer_token)
+                    if is_expired and not self._savanna_token_info_shown:
+                        self._savanna_token_info_shown = True
+                        self.root.after(300, lambda: messagebox.showinfo(
+                            "Savanna Token Expired",
+                            "The Savanna Token has expired. Go to Settings to update the token if you want to submit new creatives."
+                        ))
+            except Exception:
+                pass
         except Exception as e:
             print(f"⚠️ Warning: Could not initialize Savanna client: {e}")
             self.savanna_client = None
@@ -68,7 +81,7 @@ class CreativePreviewerApp:
         # Setup UI
         self.setup_ui()
         
-        # Load creatives (this will validate the token)
+        # Load creatives
         self.load_creatives()
     
     def setup_ui(self):
@@ -204,6 +217,9 @@ class CreativePreviewerApp:
         if mode == "search":
             # Hide Ad Network ID field
             self.ad_network_frame.pack_forget()
+            # Hide email frame in search mode
+            if hasattr(self, 'email_frame'):
+                self.email_frame.pack_forget()
             # Update button and info
             self.unified_action_button.config(text="🔍 Search")
             self.info_label.config(text="🔍 Search Mode: Check if a creative exists in the pulling queue")
@@ -212,6 +228,9 @@ class CreativePreviewerApp:
         else:  # save mode
             # Show Ad Network ID field
             self.ad_network_frame.pack(anchor=tk.W, pady=(0, 10))
+            # Show email frame in save mode
+            if hasattr(self, 'email_frame'):
+                self.email_frame.pack(anchor=tk.W, pady=(0, 10))
             # Update button and info
             self.unified_action_button.config(text="🚀 Submit")
             self.info_label.config(text="💾 Save Mode: Add a new creative to the pulling queue (auto-fills: Creation Date, Expire Date, Active)")
@@ -250,6 +269,7 @@ class CreativePreviewerApp:
         """Save creative to Savanna database"""
         creative_id = self.unified_creative_id_var.get().strip()
         ad_network_id = self.unified_ad_network_id_var.get().strip()
+        user_email = self.unified_email_var.get().strip() if hasattr(self, 'unified_email_var') else ""
         
         if not creative_id:
             messagebox.showwarning("Warning", "Please enter a Creative ID")
@@ -258,6 +278,12 @@ class CreativePreviewerApp:
         if not ad_network_id:
             messagebox.showwarning("Warning", "Please enter an Ad Network ID")
             return
+        # Email validation when provided
+        if user_email:
+            import re
+            if re.match(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", user_email) is None:
+                messagebox.showwarning("Invalid Email", "Please enter a valid email address or leave it blank.")
+                return
         
         # Validate ad_network_id is a number
         try:
@@ -275,7 +301,7 @@ class CreativePreviewerApp:
         self.root.update()
         
         # Save in background thread
-        threading.Thread(target=self._unified_save_thread, args=(creative_id, ad_network_id), daemon=True).start()
+        threading.Thread(target=self._unified_save_thread, args=(creative_id, ad_network_id, user_email), daemon=True).start()
     
     def clear_unified_fields(self):
         """Clear all input fields"""
@@ -325,7 +351,7 @@ class CreativePreviewerApp:
         """Search for networks in background thread"""
         try:
             # Use the existing Savanna client instance
-            if not self.savanna_client:
+            if not self.savanna_client or not getattr(self.savanna_client, 'bearer_token', None):
                 print("❌ Savanna client not available")
                 return
             
@@ -387,6 +413,15 @@ class CreativePreviewerApp:
                 except Exception as json_error:
                     print(f"❌ JSON parsing error: {json_error}")
                     self.root.after(0, lambda: self._network_search_completed([], f"JSON parsing error: {json_error}"))
+            elif response.status_code == 401:
+                # Do not prompt for token here; inform user once
+                if not self._savanna_token_info_shown:
+                    self._savanna_token_info_shown = True
+                    self.root.after(0, lambda: messagebox.showinfo(
+                        "Savanna Token Expired",
+                        "The Savanna Token has expired. Go to Settings to update the token if you want to submit new creatives."
+                    ))
+                self.root.after(0, lambda: self._network_search_completed([], "Unauthorized (token expired)"))
             else:
                 error_msg = f"Search failed: {response.status_code}"
                 print(f"❌ {error_msg}")
@@ -483,7 +518,7 @@ class CreativePreviewerApp:
         self.unified_results.insert(tk.END, result_text)
         self.unified_results.config(state=tk.DISABLED)
     
-    def _unified_save_thread(self, creative_id, ad_network_id):
+    def _unified_save_thread(self, creative_id, ad_network_id, user_email=""):
         """Save creative in background thread"""
         try:
             # Use the existing Savanna client instance
@@ -505,6 +540,20 @@ class CreativePreviewerApp:
                 success_msg += f"   ✅ Active: True\n\n"
                 success_msg += f"📡 API Response: {str(result)[:200]}..."
                 
+                # Insert to watchlist if email provided
+                if user_email:
+                    try:
+                        from services.watchlist import insert_watchlist_entry
+                        insert_watchlist_entry(
+                            DATABRICKS_SERVER_HOSTNAME,
+                            DATABRICKS_HTTP_PATH,
+                            self.access_token,
+                            creative_id,
+                            user_email,
+                        )
+                        success_msg += f"\n📬 Watchlist: queued notification for {user_email}"
+                    except Exception as e:
+                        success_msg += f"\n⚠️ Watchlist insert failed: {e}"
                 self.root.after(0, lambda: self._unified_save_completed(success_msg, True))
             else:
                 error_msg = f"❌ FAILED: Could not submit Creative ID '{creative_id}' to Savanna"
@@ -936,6 +985,15 @@ class CreativePreviewerApp:
         
         self.preview_button = ttk.Button(button_frame, text="🎬 Preview in Browser", command=self.show_preview)
         self.preview_button.pack(side=tk.LEFT)
+        
+        # External helper: test-a-tag.com
+        def open_test_a_tag():
+            try:
+                webbrowser.open_new_tab("https://test-a-tag.com/")
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not open test-a-tag.com: {e}")
+        self.test_a_tag_button = ttk.Button(button_frame, text="🔗 test-a-tag.com", command=open_test_a_tag)
+        self.test_a_tag_button.pack(side=tk.LEFT, padx=(8, 0))
         
         # Info frame
         info_frame = ttk.LabelFrame(parent, text="Creative Info")

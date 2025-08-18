@@ -42,7 +42,7 @@ class SavannaBearerClient:
         
         logger.info("🚀 Advanced Bearer Token Client initialized")
         
-        # Check and refresh token if needed
+        # Check token once; do not auto-refresh or prompt here
         self._ensure_valid_token()
     
     def load_savanna_token(self):
@@ -71,9 +71,9 @@ class SavannaBearerClient:
                             logger.warning(f"⚠️ Token in config is invalid: {saved_token[:20]}...")
                     break
             
-            # If no valid token in config, prompt user
-            logger.warning("⚠️ No valid Savanna token found, prompting user...")
-            return self.prompt_for_savanna_token()
+            # If no valid token in config, do not prompt at startup
+            logger.warning("⚠️ No valid Savanna token found. Token-required actions will be disabled until updated in Settings.")
+            return ""
             
         except Exception as e:
             logger.error(f"❌ Error loading Savanna token: {e}")
@@ -182,8 +182,8 @@ class SavannaBearerClient:
             is_expired, expiry_time = self._is_token_expired(self.bearer_token)
             
             if is_expired:
-                logger.warning("🔄 Token is expired, refreshing...")
-                return self._refresh_token()
+                logger.warning("🔄 Token is expired; will not prompt automatically. Update it in Settings when needed.")
+                return False
                 if new_token and new_token != self.bearer_token:
                     self.bearer_token = new_token
                     self.session.headers.update({
@@ -269,19 +269,19 @@ class SavannaBearerClient:
             return True, None
     
     def _ensure_valid_token(self):
-        """Ensure we have a valid token, refresh if needed"""
+        """Check token status without prompting the user."""
         try:
             is_expired, expiry_time = self._is_token_expired(self.bearer_token)
-            
             if is_expired:
-                logger.warning("🔄 Token is expired, attempting refresh...")
-                self._refresh_token()
-            elif expiry_time:
+                logger.warning("⚠️ Savanna token is expired. Update it in Settings when needed.")
+                return False
+            if expiry_time:
                 self.token_expiry = expiry_time
                 logger.info(f"✅ Token is valid until {expiry_time}")
-                
+                return True
         except Exception as e:
             logger.error(f"❌ Error ensuring valid token: {e}")
+        return False
     
     def _refresh_token_feathers(self) -> Optional[str]:
         """Attempt to refresh token using Feathers.js authentication endpoint"""
@@ -396,8 +396,8 @@ class SavannaBearerClient:
         logger.info("📤 Smart posting to creative-pulling...")
         
         # Ensure token is valid before posting
-        if not self._ensure_valid_token():
-            logger.error("❌ Could not obtain valid token")
+        if not self.bearer_token or not self._ensure_valid_token():
+            logger.error("❌ Token invalid or missing; not prompting automatically")
             return None
         
         # Now post with confidence
