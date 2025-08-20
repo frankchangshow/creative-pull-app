@@ -278,11 +278,14 @@ class CreativePreviewerApp:
         if not ad_network_id:
             messagebox.showwarning("Warning", "Please enter an Ad Network ID")
             return
-        # Email validation when provided
+        # Email validation for multiple emails (comma/semicolon separated)
         if user_email:
             import re
-            if re.match(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", user_email) is None:
-                messagebox.showwarning("Invalid Email", "Please enter a valid email address or leave it blank.")
+            parts = [p.strip() for p in re.split(r"[,;]", user_email) if p.strip()]
+            email_re = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+            invalid = [p for p in parts if email_re.match(p) is None]
+            if invalid:
+                messagebox.showwarning("Invalid Email(s)", f"These look invalid: {', '.join(invalid)}")
                 return
         
         # Validate ad_network_id is a number
@@ -540,18 +543,20 @@ class CreativePreviewerApp:
                 success_msg += f"   ✅ Active: True\n\n"
                 success_msg += f"📡 API Response: {str(result)[:200]}..."
                 
-                # Insert to watchlist if email provided
+                # Insert to watchlist if email(s) provided
                 if user_email:
                     try:
-                        from services.watchlist import insert_watchlist_entry
-                        insert_watchlist_entry(
+                        import re
+                        from services.watchlist import insert_watchlist_entries
+                        parts = [p.strip() for p in re.split(r"[,;]", user_email) if p.strip()]
+                        insert_watchlist_entries(
                             DATABRICKS_SERVER_HOSTNAME,
                             DATABRICKS_HTTP_PATH,
                             self.access_token,
                             creative_id,
-                            user_email,
+                            parts,
                         )
-                        success_msg += f"\n📬 Watchlist: queued notification for {user_email}"
+                        success_msg += f"\n📬 Watchlist: queued notification for {', '.join(parts)}"
                     except Exception as e:
                         success_msg += f"\n⚠️ Watchlist insert failed: {e}"
                 self.root.after(0, lambda: self._unified_save_completed(success_msg, True))
@@ -657,65 +662,91 @@ class CreativePreviewerApp:
         else:
             messagebox.showerror("Submit Failed", f"Failed to submit creative: {result_text}")
         
-    def set_today(self):
-        """Set both start and end date to today"""
-        today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-        self.start_date_var.set(today)
-        self.end_date_var.set(today)
-    
-    def set_yesterday(self):
-        """Set both start and end date to yesterday"""
-        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
-        self.start_date_var.set(yesterday)
-        self.end_date_var.set(yesterday)
-    
-    def set_last_3_days(self):
-        """Set date range to last 3 days"""
-        end_date = datetime.now(timezone.utc)
-        start_date = end_date - timedelta(days=2)
-        self.start_date_var.set(start_date.strftime('%Y-%m-%d'))
-        self.end_date_var.set(end_date.strftime('%Y-%m-%d'))
-    
-    def set_last_7_days(self):
-        """Set date range to last 7 days"""
-        end_date = datetime.now(timezone.utc)
-        start_date = end_date - timedelta(days=6)
-        self.start_date_var.set(start_date.strftime('%Y-%m-%d'))
-        self.end_date_var.set(end_date.strftime('%Y-%m-%d'))
+    def _build_iso_ts_from_date_hour(self, date_str: str, hour_str: str) -> str:
+        """Build ISO8601 UTC timestamp (truncated to hour) from date 'YYYY-MM-DD' and hour 'HH'."""
+        try:
+            base = datetime.strptime(date_str, '%Y-%m-%d')
+            hour = int(hour_str)
+            dt = base.replace(hour=hour, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
+            return dt.isoformat().replace('+00:00', 'Z')
+        except Exception:
+            return ""
+
+    def set_last_6_hours(self):
+        """Quick fill last 6 whole hours [now-6h, now)."""
+        now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        start = now - timedelta(hours=6)
+        if hasattr(self, 'start_date_var') and hasattr(self, 'start_hour_var') and hasattr(self, 'end_date_var') and hasattr(self, 'end_hour_var'):
+            self.start_date_var.set(start.strftime('%Y-%m-%d'))
+            self.start_hour_var.set(start.strftime('%H'))
+            self.end_date_var.set(now.strftime('%Y-%m-%d'))
+            self.end_hour_var.set(now.strftime('%H'))
+
+    def set_today_hours(self):
+        """Quick fill for today from 00:00Z to current hour."""
+        now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        if hasattr(self, 'start_date_var') and hasattr(self, 'start_hour_var') and hasattr(self, 'end_date_var') and hasattr(self, 'end_hour_var'):
+            self.start_date_var.set(now.strftime('%Y-%m-%d'))
+            self.start_hour_var.set('00')
+            self.end_date_var.set(now.strftime('%Y-%m-%d'))
+            self.end_hour_var.set(now.strftime('%H'))
+
+    def set_yesterday_hours(self):
+        """Quick fill for yesterday full day [00:00Z, 24:00Z)."""
+        today0 = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        yday0 = today0 - timedelta(days=1)
+        if hasattr(self, 'start_date_var') and hasattr(self, 'start_hour_var') and hasattr(self, 'end_date_var') and hasattr(self, 'end_hour_var'):
+            self.start_date_var.set(yday0.strftime('%Y-%m-%d'))
+            self.start_hour_var.set('00')
+            self.end_date_var.set(today0.strftime('%Y-%m-%d'))
+            self.end_hour_var.set('00')
     
     def run_job(self):
-        """Run the Databricks job with the selected date range"""
+        """Run the Databricks job using Start/End date+hour fields as ISO UTC."""
         try:
-            # Validate dates
-            start_date = self.start_date_var.get()
-            end_date = self.end_date_var.get()
-            
-            if not start_date or not end_date:
-                messagebox.showerror("Error", "Please enter both start and end dates")
-                return
-            
-            # Validate date format
-            try:
-                datetime.strptime(start_date, '%Y-%m-%d')
-                datetime.strptime(end_date, '%Y-%m-%d')
-            except ValueError:
-                messagebox.showerror("Error", "Please enter dates in YYYY-MM-DD format")
-                return
-            
+            # Build ISO timestamps
+            start_ts = ""
+            end_ts = ""
+            if hasattr(self, 'start_date_var') and hasattr(self, 'start_hour_var'):
+                start_ts = self._build_iso_ts_from_date_hour(self.start_date_var.get().strip(), self.start_hour_var.get().strip())
+            if hasattr(self, 'end_date_var') and hasattr(self, 'end_hour_var'):
+                end_ts = self._build_iso_ts_from_date_hour(self.end_date_var.get().strip(), self.end_hour_var.get().strip())
+
+            # Validate window: both provided and <= 3 days
+            if start_ts and end_ts:
+                try:
+                    sdt = datetime.strptime(start_ts.replace('Z', '+0000'), '%Y-%m-%dT%H:%M:%S%z')
+                    edt = datetime.strptime(end_ts.replace('Z', '+0000'), '%Y-%m-%dT%H:%M:%S%z')
+                    if edt <= sdt:
+                        messagebox.showerror("Error", "End Time must be after Start Time")
+                        return
+                    if (edt - sdt) > timedelta(days=3):
+                        messagebox.showerror("Error", "Time window too large. Please select 3 days or less.")
+                        return
+                except Exception:
+                    # If parsing fails, continue and let backend validate
+                    pass
+
+            params = {}
+            if start_ts:
+                params["start_ts"] = start_ts
+            if end_ts:
+                params["end_ts"] = end_ts
+
             # Disable button and show status
             self.run_job_button.config(state='disabled')
             self.job_status_label.config(text="🔄 Running job...")
             self.root.update()
-            
+
             # Run job in background thread
-            threading.Thread(target=self._run_job_thread, args=(start_date, end_date), daemon=True).start()
-            
+            threading.Thread(target=self._run_job_thread, args=(params,), daemon=True).start()
+
         except Exception as e:
             messagebox.showerror("Error", f"Failed to start job: {str(e)}")
             self.run_job_button.config(state='normal')
             self.job_status_label.config(text="❌ Job failed to start")
     
-    def _run_job_thread(self, start_date, end_date):
+    def _run_job_thread(self, params):
         """Run the job in a background thread"""
         try:
             # Update UI with initial status
@@ -725,14 +756,19 @@ class CreativePreviewerApp:
             from clients.databricks_client import DatabricksClient
             client = DatabricksClient()
             self.root.after(0, lambda: self._update_job_status("📡 Sending job request to Databricks..."))
-            response = client.run_job(DATABRICKS_WORKSPACE_URL, self.access_token, JOB_ID, start_date, end_date)
+            # Updated client should accept a params dict; fallback to day-mode signature if present
+            try:
+                response = client.run_job_with_params(DATABRICKS_WORKSPACE_URL, self.access_token, JOB_ID, params)
+            except Exception:
+                # Back-compat: if only day-mode available
+                response = client.run_job(DATABRICKS_WORKSPACE_URL, self.access_token, JOB_ID, params.get('start_date',''), params.get('end_date',''))
             
             if response.status_code == 200:
                 result = response.json()
                 run_id = result.get('run_id')
                 
                 # Update UI with success
-                self.root.after(0, lambda: self._update_job_status(f"✅ Job started successfully!\n🆔 Run ID: {run_id}\n📅 Date Range: {start_date} to {end_date}"))
+                self.root.after(0, lambda: self._update_job_status(f"✅ Job started successfully!\n🆔 Run ID: {run_id}"))
                 
                 # Start monitoring the job
                 self.root.after(0, lambda: self._start_job_monitoring(run_id))
@@ -748,6 +784,12 @@ class CreativePreviewerApp:
         """Start monitoring the job progress"""
         self.current_run_id = run_id
         self.monitoring_active = True
+        # Spinner setup
+        self._spinner_frames = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏']
+        self._spinner_idx = 0
+        self._base_job_status_text = self.job_status_label.cget("text")
+        self._spinner_job = None
+        self._tick_spinner()
         self.root.after(0, lambda: self._monitor_job_progress(run_id))
     
     def _monitor_job_progress(self, run_id):
@@ -808,12 +850,14 @@ class CreativePreviewerApp:
                 
                 status_text = "\n".join(status_parts)
                 
-                # Update UI
-                self.root.after(0, lambda: self._update_job_status(status_text))
+                # Update UI and base text for spinner overlay
+                self._base_job_status_text = status_text
+                self.root.after(0, lambda: self._update_job_status(self._compose_spinner_text()))
                 
                 # Check if job is complete
                 if life_cycle_state in ['TERMINATED', 'SKIPPED', 'INTERNAL_ERROR']:
                     self.monitoring_active = False
+                    self._stop_spinner()
                     if result_state == 'SUCCESS':
                         self.root.after(0, lambda: self._job_completed_successfully(run_id))
                     else:
@@ -825,6 +869,7 @@ class CreativePreviewerApp:
                 error_msg = f"Failed to check job status: {response.status_code} - {response.text}"
                 self.root.after(0, lambda: self._job_failed(error_msg))
                 self.monitoring_active = False
+                self._stop_spinner()
                 
         except Exception as e:
             error_msg = f"Error monitoring job: {str(e)}"
@@ -835,6 +880,28 @@ class CreativePreviewerApp:
         """Update the job status label"""
         self.job_status_label.config(text=status_text)
         self.root.update()
+
+    def _compose_spinner_text(self):
+        try:
+            frame = self._spinner_frames[self._spinner_idx % len(self._spinner_frames)]
+        except Exception:
+            frame = '⏳'
+        return f"{self._base_job_status_text}\n{frame} Updating..."
+
+    def _tick_spinner(self):
+        if not getattr(self, 'monitoring_active', False):
+            return
+        self._spinner_idx = (getattr(self, '_spinner_idx', 0) + 1) % 1000000
+        self.job_status_label.config(text=self._compose_spinner_text())
+        self._spinner_job = self.root.after(400, self._tick_spinner)
+
+    def _stop_spinner(self):
+        try:
+            if getattr(self, '_spinner_job', None) is not None:
+                self.root.after_cancel(self._spinner_job)
+                self._spinner_job = None
+        except Exception:
+            pass
     
     def _job_completed_successfully(self, run_id):
         """Handle successful job completion"""

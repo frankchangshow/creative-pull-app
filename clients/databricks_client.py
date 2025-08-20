@@ -85,6 +85,22 @@ class DatabricksClient:
 		resp = requests.post(api_url, headers=headers, json=payload, timeout=30)
 		return resp
 
+	def run_job_with_params(self, workspace_url: str, access_token: str, job_id: int, params: dict):
+		"""Trigger jobs/run-now using job parameters (Jobs 2.1)."""
+		api_url = f"{workspace_url}/api/2.1/jobs/run-now"
+		headers = {
+			"Authorization": f"Bearer {access_token}",
+			"Content-Type": "application/json",
+		}
+		# Pass only non-empty params
+		clean_params = {k: v for k, v in (params or {}).items() if v is not None and v != ""}
+		payload = {
+			"job_id": job_id,
+			"job_parameters": clean_params,
+		}
+		resp = requests.post(api_url, headers=headers, json=payload, timeout=30)
+		return resp
+
 	def list_recent_runs(self, workspace_url: str, access_token: str, job_id: int, limit: int = 5):
 		"""Call jobs/runs/list and return JSON."""
 		api_url = f"{workspace_url}/api/2.1/jobs/runs/list"

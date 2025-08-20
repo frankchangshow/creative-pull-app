@@ -26,37 +26,49 @@ def create_advanced_features_section(parent, app):
 
 
 def create_job_runner_section(container, app):
-	"""Create the job runner section with date range selection (migrated)."""
-	job_frame = ttk.LabelFrame(container, text="🚀 Job Runner")
+	"""Create the job runner section with UTC timestamp window."""
+	job_frame = ttk.LabelFrame(container, text="🚀 Pull from GCS Bucket")
 	job_frame.pack(fill=tk.X, pady=(0, 10), padx=5)
 
-	date_frame = ttk.Frame(job_frame)
-	date_frame.pack(fill=tk.X, padx=5, pady=5)
+	# Start/End Time (UTC): date + hour pickers
+	ts_frame = ttk.Frame(job_frame)
+	ts_frame.pack(fill=tk.X, padx=5, pady=5)
 
-	start_date_frame = ttk.Frame(date_frame)
-	start_date_frame.pack(fill=tk.X, pady=2)
-	ttk.Label(start_date_frame, text="Start Date (GMT):").pack(side=tk.LEFT)
+	# Defaults: today's date and current hour (UTC)
+	_now = datetime.now(timezone.utc)
+	_default_date = _now.strftime('%Y-%m-%d')
+	_default_hour = _now.strftime('%H')
 
-	current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-	app.start_date_var = tk.StringVar(value=current_date)
-	app.start_date_entry = ttk.Entry(start_date_frame, textvariable=app.start_date_var, width=12)
-	app.start_date_entry.pack(side=tk.RIGHT)
+	# Hours list 00..23
+	_hours = [f"{h:02d}" for h in range(24)]
 
-	end_date_frame = ttk.Frame(date_frame)
-	end_date_frame.pack(fill=tk.X, pady=2)
-	ttk.Label(end_date_frame, text="End Date (GMT):").pack(side=tk.LEFT)
+	# Use grid to align fields cleanly
+	ts_frame.grid_columnconfigure(1, weight=0)
 
-	app.end_date_var = tk.StringVar(value=current_date)
-	app.end_date_entry = ttk.Entry(end_date_frame, textvariable=app.end_date_var, width=12)
-	app.end_date_entry.pack(side=tk.RIGHT)
+	start_label = ttk.Label(ts_frame, text="Start Time (UTC):")
+	start_label.grid(row=0, column=0, sticky='w', padx=(0, 8), pady=2)
+	app.start_date_var = tk.StringVar(value=_default_date)
+	app.start_date_entry = ttk.Entry(ts_frame, textvariable=app.start_date_var, width=12)
+	app.start_date_entry.grid(row=0, column=1, sticky='w', padx=(0, 8), pady=2)
+	app.start_hour_var = tk.StringVar(value=_default_hour)
+	app.start_hour_combo = ttk.Combobox(ts_frame, textvariable=app.start_hour_var, values=_hours, width=4, state='readonly')
+	app.start_hour_combo.grid(row=0, column=2, sticky='w', padx=(0, 0), pady=2)
 
-	quick_date_frame = ttk.Frame(job_frame)
-	quick_date_frame.pack(fill=tk.X, padx=5, pady=2)
+	end_label = ttk.Label(ts_frame, text="End Time (UTC):")
+	end_label.grid(row=1, column=0, sticky='w', padx=(0, 8), pady=2)
+	app.end_date_var = tk.StringVar(value=_default_date)
+	app.end_date_entry = ttk.Entry(ts_frame, textvariable=app.end_date_var, width=12)
+	app.end_date_entry.grid(row=1, column=1, sticky='w', padx=(0, 8), pady=2)
+	app.end_hour_var = tk.StringVar(value=_default_hour)
+	app.end_hour_combo = ttk.Combobox(ts_frame, textvariable=app.end_hour_var, values=_hours, width=4, state='readonly')
+	app.end_hour_combo.grid(row=1, column=2, sticky='w', padx=(0, 0), pady=2)
 
-	ttk.Button(quick_date_frame, text="Today", command=app.set_today, width=8).pack(side=tk.LEFT, padx=2)
-	ttk.Button(quick_date_frame, text="Yesterday", command=app.set_yesterday, width=8).pack(side=tk.LEFT, padx=2)
-	ttk.Button(quick_date_frame, text="Last 3 Days", command=app.set_last_3_days, width=10).pack(side=tk.LEFT, padx=2)
-	ttk.Button(quick_date_frame, text="Last 7 Days", command=app.set_last_7_days, width=10).pack(side=tk.LEFT, padx=2)
+	# Quick fills
+	quick_ts_frame = ttk.Frame(job_frame)
+	quick_ts_frame.pack(fill=tk.X, padx=5, pady=2)
+	ttk.Button(quick_ts_frame, text="Last 6 Hours", command=app.set_last_6_hours, width=12).pack(side=tk.LEFT, padx=2)
+	ttk.Button(quick_ts_frame, text="Today", command=app.set_today_hours, width=8).pack(side=tk.LEFT, padx=2)
+	ttk.Button(quick_ts_frame, text="Yesterday", command=app.set_yesterday_hours, width=10).pack(side=tk.LEFT, padx=2)
 
 	button_frame = ttk.Frame(job_frame)
 	button_frame.pack(fill=tk.X, padx=5, pady=5)
@@ -121,7 +133,7 @@ def create_unified_savanna_section(container, app):
 	# Email for watchlist notifications (used in Save mode)
 	app.email_frame = ttk.Frame(input_frame)
 	app.email_frame.pack(anchor=tk.W, pady=(0, 10))
-	ttk.Label(app.email_frame, text="Notification Email (optional):").pack(anchor=tk.W)
+	ttk.Label(app.email_frame, text="Notification Email(s) (optional, comma-separated):").pack(anchor=tk.W)
 	app.unified_email_var = tk.StringVar()
 	app.unified_email_entry = ttk.Entry(app.email_frame, textvariable=app.unified_email_var, width=30)
 	app.unified_email_entry.pack(anchor=tk.W, pady=(2, 0))
