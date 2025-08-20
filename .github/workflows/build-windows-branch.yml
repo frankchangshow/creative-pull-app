@@ -37,14 +37,23 @@ jobs:
           --add-data "savanna_bearer_client.py;." `
           creative_previewer_app_webview.py
 
+    - id: sanitize
+      name: Sanitize ref name
+      shell: pwsh
+      run: |
+        $branch='${{ github.ref_name }}'
+        $safe=$branch -replace '[\\/:\*\?"<>\| ]','-'
+        echo "SAFE_REF=$safe" >> $env:GITHUB_OUTPUT
+
     - name: Package application
       shell: pwsh
       run: |
-        Compress-Archive -Path dist/CreativePullApp -DestinationPath CreativePullApp_Windows_${{ github.ref_name }}.zip
+        $safe='${{ steps.sanitize.outputs.SAFE_REF }}'
+        Compress-Archive -Path dist/CreativePullApp -DestinationPath ("CreativePullApp_Windows_{0}.zip" -f $safe)
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: CreativePullApp_Windows_${{ github.ref_name }}
-        path: CreativePullApp_Windows_${{ github.ref_name }}.zip
+        name: CreativePullApp_Windows_${{ steps.sanitize.outputs.SAFE_REF }}
+        path: CreativePullApp_Windows_${{ steps.sanitize.outputs.SAFE_REF }}.zip
         if-no-files-found: error
