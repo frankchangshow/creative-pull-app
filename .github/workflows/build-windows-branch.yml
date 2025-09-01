@@ -33,6 +33,7 @@ jobs:
           --hidden-import "ui.settings" `
           --hidden-import "ui.advanced" `
           --hidden-import "utils.markup_parser" `
+          --runtime-hook pyinstaller_hooks/rthook_add_local_packages.py `
           --collect-all ui `
           --collect-all utils `
           --collect-all clients `
@@ -53,6 +54,7 @@ jobs:
           --hidden-import "ui.settings" `
           --hidden-import "ui.advanced" `
           --hidden-import "utils.markup_parser" `
+          --runtime-hook pyinstaller_hooks/rthook_add_local_packages.py `
           --collect-all ui `
           --collect-all utils `
           --collect-all clients `
