@@ -26,22 +26,24 @@ jobs:
     - name: Build with PyInstaller
       shell: pwsh
       run: |
-        pyinstaller --noconfirm --onedir --windowed --name "CreativePullApp" `
+        pyinstaller --noconfirm --clean --log-level DEBUG --onedir --windowed --name "CreativePullApp" `
           --hidden-import tkinter `
-          --hidden-import "ui.advanced" `
-          --hidden-import "ui.preview" `
-          --hidden-import "ui.settings" `
-          --hidden-import "utils.har_utils" `
-          --hidden-import "utils.markup_parser" `
-          --hidden-import "utils.vast_utils" `
-          --hidden-import "clients.databricks_client" `
-          --hidden-import "clients.savanna_client" `
-          --hidden-import "services.savanna_actions" `
-          --hidden-import "services.watchlist" `
-          --hidden-import "config.app_config" `
-          --hidden-import "savanna_bearer_client" `
+          --collect-all ui `
+          --collect-all utils `
+          --collect-all clients `
+          --collect-all services `
+          --collect-all config `
+          --collect-all databricks `
+          --collect-all thrift `
+          --collect-all pandas `
           --add-data "databricks_job_templates;databricks_job_templates" `
+          --add-data "savanna_bearer_client.py;." `
           creative_previewer_app_webview.py
+
+    - name: Show dist size
+      shell: pwsh
+      run: |
+        Get-ChildItem -Recurse dist/CreativePullApp | Measure-Object -Property Length -Sum | ForEach-Object { "Dist size: {0:N0} bytes" -f $_.Sum }
 
     - id: sanitize
       name: Sanitize ref name
