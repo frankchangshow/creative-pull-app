@@ -40,10 +40,26 @@ jobs:
           --add-data "savanna_bearer_client.py;." `
           creative_previewer_app_webview.py
 
+        # Console build for debugging (prints stdout/stderr)
+        pyinstaller --noconfirm --clean --log-level DEBUG --onedir --console --name "CreativePullApp_console" `
+          --hidden-import tkinter `
+          --collect-all ui `
+          --collect-all utils `
+          --collect-all clients `
+          --collect-all services `
+          --collect-all config `
+          --collect-all databricks `
+          --collect-all thrift `
+          --collect-all pandas `
+          --add-data "databricks_job_templates;databricks_job_templates" `
+          --add-data "savanna_bearer_client.py;." `
+          creative_previewer_app_webview.py
+
     - name: Show dist size
       shell: pwsh
       run: |
-        Get-ChildItem -Recurse dist/CreativePullApp | Measure-Object -Property Length -Sum | ForEach-Object { "Dist size: {0:N0} bytes" -f $_.Sum }
+        Get-ChildItem -Recurse dist/CreativePullApp | Measure-Object -Property Length -Sum | ForEach-Object { "Dist (windowed) size: {0:N0} bytes" -f $_.Sum }
+        Get-ChildItem -Recurse dist/CreativePullApp_console | Measure-Object -Property Length -Sum | ForEach-Object { "Dist (console) size: {0:N0} bytes" -f $_.Sum }
 
     - id: sanitize
       name: Sanitize ref name
@@ -58,10 +74,13 @@ jobs:
       run: |
         $safe='${{ steps.sanitize.outputs.SAFE_REF }}'
         Compress-Archive -Path dist/CreativePullApp -DestinationPath ("CreativePullApp_Windows_{0}.zip" -f $safe)
+        Compress-Archive -Path dist/CreativePullApp_console -DestinationPath ("CreativePullApp_Windows_console_{0}.zip" -f $safe)
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: CreativePullApp_Windows_${{ steps.sanitize.outputs.SAFE_REF }}
-        path: CreativePullApp_Windows_${{ steps.sanitize.outputs.SAFE_REF }}.zip
+        path: |
+          CreativePullApp_Windows_${{ steps.sanitize.outputs.SAFE_REF }}.zip
+          CreativePullApp_Windows_console_${{ steps.sanitize.outputs.SAFE_REF }}.zip
         if-no-files-found: error
