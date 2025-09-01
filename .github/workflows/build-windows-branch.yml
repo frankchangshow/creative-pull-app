@@ -28,13 +28,19 @@ jobs:
       run: |
         pyinstaller --noconfirm --onedir --windowed --name "CreativePullApp" `
           --hidden-import tkinter `
-          --add-data "clients;clients" `
-          --add-data "config;config" `
+          --hidden-import "ui.advanced" `
+          --hidden-import "ui.preview" `
+          --hidden-import "ui.settings" `
+          --hidden-import "utils.har_utils" `
+          --hidden-import "utils.markup_parser" `
+          --hidden-import "utils.vast_utils" `
+          --hidden-import "clients.databricks_client" `
+          --hidden-import "clients.savanna_client" `
+          --hidden-import "services.savanna_actions" `
+          --hidden-import "services.watchlist" `
+          --hidden-import "config.app_config" `
+          --hidden-import "savanna_bearer_client" `
           --add-data "databricks_job_templates;databricks_job_templates" `
-          --add-data "services;services" `
-          --add-data "ui;ui" `
-          --add-data "utils;utils" `
-          --add-data "savanna_bearer_client.py;." `
           creative_previewer_app_webview.py
 
     - id: sanitize
