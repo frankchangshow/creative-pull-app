@@ -27,7 +27,12 @@ jobs:
       shell: pwsh
       run: |
         pyinstaller --noconfirm --clean --log-level DEBUG --onedir --windowed --name "CreativePullApp" `
+          --paths . `
           --hidden-import tkinter `
+          --hidden-import "ui.preview" `
+          --hidden-import "ui.settings" `
+          --hidden-import "ui.advanced" `
+          --hidden-import "utils.markup_parser" `
           --collect-all ui `
           --collect-all utils `
           --collect-all clients `
@@ -42,7 +47,12 @@ jobs:
 
         # Console build for debugging (prints stdout/stderr)
         pyinstaller --noconfirm --clean --log-level DEBUG --onedir --console --name "CreativePullApp_console" `
+          --paths . `
           --hidden-import tkinter `
+          --hidden-import "ui.preview" `
+          --hidden-import "ui.settings" `
+          --hidden-import "ui.advanced" `
+          --hidden-import "utils.markup_parser" `
           --collect-all ui `
           --collect-all utils `
           --collect-all clients `
