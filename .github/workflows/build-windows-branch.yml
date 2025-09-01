@@ -34,11 +34,11 @@ jobs:
           --hidden-import "ui.advanced" `
           --hidden-import "utils.markup_parser" `
           --runtime-hook pyinstaller_hooks/rthook_add_local_packages.py `
-          --collect-all ui `
-          --collect-all utils `
-          --collect-all clients `
-          --collect-all services `
-          --collect-all config `
+          --add-data "ui;ui" `
+          --add-data "utils;utils" `
+          --add-data "clients;clients" `
+          --add-data "services;services" `
+          --add-data "config;config" `
           --collect-all databricks `
           --collect-all thrift `
           --collect-all pandas `
@@ -55,11 +55,11 @@ jobs:
           --hidden-import "ui.advanced" `
           --hidden-import "utils.markup_parser" `
           --runtime-hook pyinstaller_hooks/rthook_add_local_packages.py `
-          --collect-all ui `
-          --collect-all utils `
-          --collect-all clients `
-          --collect-all services `
-          --collect-all config `
+          --add-data "ui;ui" `
+          --add-data "utils;utils" `
+          --add-data "clients;clients" `
+          --add-data "services;services" `
+          --add-data "config;config" `
           --collect-all databricks `
           --collect-all thrift `
           --collect-all pandas `
