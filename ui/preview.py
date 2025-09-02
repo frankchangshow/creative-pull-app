@@ -192,6 +192,19 @@ def build_vast_preview_html(
 	creative_id = _safe_creative_field(selected_creative, 'id')
 	companion_html = companion_info_html if companion_info_html else '<div class="companion-section"><h3>🖼️ Companion Ads</h3><p>No Companion</p></div>'
 	container_class = ' portrait' if is_portrait else ' landscape'
+	# Prebuild optional click-through section to avoid nested f-string parsing issues on some Windows builds
+	click_section_html = ""
+	if click_through_url:
+		click_section_html = f"""
+				<div class="vast-url">
+					<button class="copy-button" onclick="copyToClipboard('{click_through_url}')">Copy</button>
+					<strong>🔗 Click-Through URL:</strong><br>
+					{click_through_url}
+					<div class="inline-actions">
+						<a class="action-button primary" href="{click_through_url}" target="_blank" rel="noopener noreferrer">Open</a>
+					</div>
+				</div>
+				"""
 	return f"""
 	<html>
 	<head>
@@ -447,16 +460,7 @@ def build_vast_preview_html(
 						<a class="action-button primary" href="{vast_url}" target="_blank" rel="noopener noreferrer">Open</a>
 					</div>
 				</div>
-				{f"""
-				<div class=\"vast-url\">
-					<button class=\"copy-button\" onclick=\"copyToClipboard('{click_through_url}')\">Copy</button>
-					<strong>🔗 Click-Through URL:</strong><br>
-					{click_through_url}
-					<div class=\"inline-actions\">
-						<a class=\"action-button primary\" href=\"{click_through_url}\" target=\"_blank\" rel=\"noopener noreferrer\">Open</a>
-					</div>
-				</div>
-				""" if click_through_url else ''}
+				{click_section_html}
 			</div>
 			{companion_html}
 		</div>
