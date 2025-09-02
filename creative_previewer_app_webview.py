@@ -1509,10 +1509,28 @@ Raw Size: {self.selected_creative['size']}"""
             from tkinter import filedialog
             import os
             from datetime import datetime
+            import re
             
-            # Generate default filename with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            default_filename = f"creative_markup_{timestamp}.txt"
+            # Prefer creative ID as the default filename (sanitized), fallback to timestamped name
+            creative_id = None
+            try:
+                if hasattr(self, 'selected_creative') and self.selected_creative is not None:
+                    creative_id = str(self.selected_creative.get('id') or '').strip()
+            except Exception:
+                creative_id = None
+
+            # Sanitize for cross-platform filenames
+            safe_id = None
+            if creative_id:
+                safe_id = re.sub(r"[^A-Za-z0-9._-]+", "_", creative_id)
+                if not safe_id:
+                    safe_id = None
+
+            if safe_id:
+                default_filename = f"{safe_id}.txt"
+            else:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                default_filename = f"creative_markup_{timestamp}.txt"
             
             # Open file dialog for save location
             file_path = filedialog.asksaveasfilename(
