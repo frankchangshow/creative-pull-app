@@ -77,6 +77,8 @@ class CreativePreviewerApp:
         # Job monitoring variables
         self.current_run_id = None
         self.monitoring_active = False
+        # Advanced window reference for separate window UI
+        self.advanced_window = None
         
         # Setup UI
         self.setup_ui()
@@ -88,14 +90,28 @@ class CreativePreviewerApp:
         # Main container
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # Apply unified theme
+        try:
+            from ui.theme import apply_theme as _apply_theme
+            _apply_theme(self.root)
+        except Exception:
+            pass
+
+        # Header row: title only (controls moved to Save section)
+        header_frame = ttk.Frame(main_frame)
+        header_frame.pack(fill=tk.X, pady=(0, 10))
+
+        title_label = ttk.Label(header_frame, text="Creative Pull App", font=("Arial", 18, "bold"))
+        title_label.pack(side=tk.LEFT)
         
         # Create splitter
         paned_window = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
         paned_window.pack(fill=tk.BOTH, expand=True)
         
-        # Left panel - Creative list and controls
+        # Left panel - Creative list and controls (give more space)
         left_frame = ttk.Frame(paned_window)
-        paned_window.add(left_frame, weight=1)
+        paned_window.add(left_frame, weight=3)
         
         # Right panel - Preview area
         right_frame = ttk.Frame(paned_window)
@@ -105,20 +121,9 @@ class CreativePreviewerApp:
         self.create_right_panel(right_frame)
     
     def create_left_panel(self, parent):
-        # Title and Settings row
-        title_frame = ttk.Frame(parent)
-        title_frame.pack(fill=tk.X, pady=(0, 20))
-        
-        # Title on the left
-        title_label = ttk.Label(title_frame, text="Creative Pull App", font=("Arial", 18, "bold"))
-        title_label.pack(side=tk.LEFT)
-        
-        # Settings button on the right
-        self.settings_button = ttk.Button(title_frame, text="⚙️ Settings", command=self.show_settings, width=12)
-        self.settings_button.pack(side=tk.RIGHT)
-        
-        # Advanced Features Section (Collapsible)
-        self.create_advanced_features_section(parent)
+        # Simplified left column: Save on top, then Search; Advanced lives under header toggle
+        from ui.advanced import create_save_mode_section
+        create_save_mode_section(parent, self)
         
         # Main Search Section (Always visible)
         self.create_main_search_section(parent)
@@ -148,35 +153,37 @@ class CreativePreviewerApp:
         self.status_label.pack(pady=(10, 0))
     
     def create_advanced_features_section(self, parent):
-        """Create collapsible advanced features section"""
-        # Advanced Features Frame
-        advanced_frame = ttk.LabelFrame(parent, text="⚙️ Advanced Features")
-        advanced_frame.pack(fill=tk.X, pady=(0, 10), padx=5)
-        
-        # Toggle button for advanced features
-        self.advanced_toggle_var = tk.BooleanVar(value=False)
-        self.advanced_toggle_button = ttk.Checkbutton(
-            advanced_frame, 
-            text="Show Advanced Features", 
-            variable=self.advanced_toggle_var,
-            command=self.toggle_advanced_features
-        )
-        self.advanced_toggle_button.pack(pady=5)
-        
-        # Container for advanced features (initially hidden)
-        self.advanced_features_container = ttk.Frame(advanced_frame)
-        
-        # Delegated Advanced Features
-        from ui.advanced import create_job_runner_section, create_unified_savanna_section
-        create_job_runner_section(self.advanced_features_container, self)
-        create_unified_savanna_section(self.advanced_features_container, self)
+        """Deprecated: Advanced now opens in its own window."""
+        pass
     
     def toggle_advanced_features(self):
-        """Toggle the visibility of advanced features"""
-        if self.advanced_toggle_var.get():
-            self.advanced_features_container.pack(fill=tk.X, pady=5)
-        else:
-            self.advanced_features_container.pack_forget()
+        """Open/close Advanced as a separate window to avoid taking space."""
+        want_open = self.advanced_toggle_var.get()
+        try:
+            if want_open and (self.advanced_window is None or not self.advanced_window.winfo_exists()):
+                win = tk.Toplevel(self.root)
+                win.title("Advanced Features")
+                win.geometry("640x520")
+                self.advanced_window = win
+                container = ttk.Frame(win)
+                container.pack(fill=tk.BOTH, expand=True)
+                from ui.advanced import create_advanced_features_section as _adv
+                # Render without inline toggle (window close controls visibility)
+                _adv(container, self, show_inline_toggle=False)
+                # Ensure container is visible
+                self.advanced_features_container.pack(fill=tk.BOTH, expand=True, pady=5)
+
+                def _on_close():
+                    try:
+                        self.advanced_toggle_var.set(False)
+                    except Exception:
+                        pass
+                    win.destroy()
+                win.protocol("WM_DELETE_WINDOW", _on_close)
+            elif not want_open and self.advanced_window is not None and self.advanced_window.winfo_exists():
+                self.advanced_window.destroy()
+        except Exception as e:
+            print(f"⚠️ Advanced window error: {e}")
     
     def create_main_search_section(self, parent):
         """Create the main search section (always visible)"""
@@ -214,23 +221,41 @@ class CreativePreviewerApp:
         """Handle mode change between search and save"""
         mode = self.savanna_mode_var.get()
         
+        def _hide(widget):
+            try:
+                if widget.winfo_manager() == 'grid':
+                    widget.grid_remove()
+                else:
+                    widget.pack_forget()
+            except Exception:
+                pass
+
+        def _show(widget):
+            try:
+                if widget.winfo_manager() == 'grid':
+                    widget.grid()
+                else:
+                    widget.pack(anchor=tk.W, pady=(0, 10))
+            except Exception:
+                pass
+
         if mode == "search":
-            # Hide Ad Network ID field
-            self.ad_network_frame.pack_forget()
-            # Hide email frame in search mode
+            # Hide Ad Network and Emails
+            if hasattr(self, 'ad_network_frame'):
+                _hide(self.ad_network_frame)
             if hasattr(self, 'email_frame'):
-                self.email_frame.pack_forget()
+                _hide(self.email_frame)
             # Update button and info
             self.unified_action_button.config(text="🔍 Search")
             self.info_label.config(text="🔍 Search Mode: Check if a creative exists in the pulling queue")
             # Clear Ad Network ID field
-            self.unified_ad_network_id_var.set("")
+            if hasattr(self, 'unified_ad_network_id_var'):
+                self.unified_ad_network_id_var.set("")
         else:  # save mode
-            # Show Ad Network ID field
-            self.ad_network_frame.pack(anchor=tk.W, pady=(0, 10))
-            # Show email frame in save mode
+            if hasattr(self, 'ad_network_frame'):
+                _show(self.ad_network_frame)
             if hasattr(self, 'email_frame'):
-                self.email_frame.pack(anchor=tk.W, pady=(0, 10))
+                _show(self.email_frame)
             # Update button and info
             self.unified_action_button.config(text="🚀 Submit")
             self.info_label.config(text="💾 Save Mode: Add a new creative to the pulling queue (auto-fills: Creation Date, Expire Date, Active)")
@@ -266,45 +291,87 @@ class CreativePreviewerApp:
         threading.Thread(target=self._unified_search_thread, args=(creative_id,), daemon=True).start()
     
     def unified_save_creative(self):
-        """Save creative to Savanna database"""
-        creative_id = self.unified_creative_id_var.get().strip()
+        """Save one or more creatives to Savanna using a single Demand Source ID."""
+        creative_raw = self.unified_creative_id_var.get().strip()
         ad_network_id = self.unified_ad_network_id_var.get().strip()
         user_email = self.unified_email_var.get().strip() if hasattr(self, 'unified_email_var') else ""
-        
-        if not creative_id:
-            messagebox.showwarning("Warning", "Please enter a Creative ID")
+
+        if not creative_raw:
+            messagebox.showwarning("Warning", "Please enter at least one Creative ID")
             return
-        
+
+        # Enforce comma-separated IDs. Warn if user used whitespace as delimiter.
+        if "," not in creative_raw and re.search(r"\s", creative_raw):
+            messagebox.showwarning(
+                "Invalid Creative IDs",
+                "Separate multiple Creative IDs with commas only (no spaces).\nExample: abc123,def456,ghi789"
+            )
+            return
+
+        # Split strictly by comma; trim and dedupe (preserve order)
+        ids = [c.strip() for c in creative_raw.split(",") if c.strip()]
+        # If any token still contains whitespace, warn
+        if any(re.search(r"\s", c) for c in ids):
+            messagebox.showwarning(
+                "Invalid Creative IDs",
+                "Creative IDs must not contain spaces. Use commas between IDs with no spaces."
+            )
+            return
+        seen = set()
+        creative_ids = []
+        for cid in ids:
+            if cid not in seen:
+                seen.add(cid)
+                creative_ids.append(cid)
+        if not creative_ids:
+            messagebox.showwarning("Warning", "No valid Creative IDs parsed")
+            return
+
+        # Limit to at most 10 IDs per submission
+        if len(creative_ids) > 10:
+            messagebox.showwarning(
+                "Too Many Creative IDs",
+                f"You can submit up to 10 creatives at a time. You entered {len(creative_ids)}."
+            )
+            return
+
         if not ad_network_id:
-            messagebox.showwarning("Warning", "Please enter an Ad Network ID")
+            messagebox.showwarning("Warning", "Please enter a Demand Source ID")
             return
-        # Email validation for multiple emails (comma/semicolon separated)
+
+        # Email validation – enforce comma-separated, no spaces
         if user_email:
-            import re
-            parts = [p.strip() for p in re.split(r"[,;]", user_email) if p.strip()]
+            if ";" in user_email:
+                messagebox.showwarning("Invalid Emails", "Use commas to separate multiple emails (no semicolons).")
+                return
+            if re.search(r"\s", user_email):
+                messagebox.showwarning("Invalid Emails", "Remove spaces. Separate multiple emails by commas only.")
+                return
+            parts = [p.strip() for p in user_email.split(",") if p.strip()]
             email_re = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
             invalid = [p for p in parts if email_re.match(p) is None]
             if invalid:
                 messagebox.showwarning("Invalid Email(s)", f"These look invalid: {', '.join(invalid)}")
                 return
-        
+
         # Validate ad_network_id is a number
         try:
             int(ad_network_id)
         except ValueError:
-            messagebox.showwarning("Warning", "Ad Network ID must be a number")
+            messagebox.showwarning("Warning", "Demand Source ID must be a number")
             return
-        
+
         # Disable button and show status
         self.unified_action_button.config(state='disabled')
         self.unified_results.config(state=tk.NORMAL)
         self.unified_results.delete(1.0, tk.END)
-        self.unified_results.insert(tk.END, f"🚀 Submitting Creative ID: {creative_id} to Savanna...")
+        self.unified_results.insert(tk.END, f"🚀 Submitting {len(creative_ids)} creative(s) to Savanna using Demand Source ID {ad_network_id}...\n\n")
+        self.unified_results.insert(tk.END, "IDs: " + ", ".join(creative_ids[:10]) + ("..." if len(creative_ids) > 10 else "") + "\n")
         self.unified_results.config(state=tk.DISABLED)
         self.root.update()
-        
-        # Save in background thread
-        threading.Thread(target=self._unified_save_thread, args=(creative_id, ad_network_id, user_email), daemon=True).start()
+
+        # Save in background thread (batch)
+        threading.Thread(target=self._unified_save_multi_thread, args=(creative_ids, ad_network_id, user_email), daemon=True).start()
     
     def clear_unified_fields(self):
         """Clear all input fields"""
@@ -417,14 +484,12 @@ class CreativePreviewerApp:
                     print(f"❌ JSON parsing error: {json_error}")
                     self.root.after(0, lambda: self._network_search_completed([], f"JSON parsing error: {json_error}"))
             elif response.status_code == 401:
-                # Do not prompt for token here; inform user once
-                if not self._savanna_token_info_shown:
-                    self._savanna_token_info_shown = True
-                    self.root.after(0, lambda: messagebox.showinfo(
-                        "Savanna Token Expired",
-                        "The Savanna Token has expired. Go to Settings to update the token if you want to submit new creatives."
-                    ))
-                self.root.after(0, lambda: self._network_search_completed([], "Unauthorized (token expired)"))
+                # Inline status next to Submit only; no message under input
+                self.root.after(0, lambda: (
+                    setattr(self, '_savanna_token_info_shown', True),
+                    getattr(self, 'unified_status_label', ttk.Label()).config(text="Unauthorized (token expired)")
+                ))
+                self.root.after(0, lambda: self._network_search_completed([], ""))
             else:
                 error_msg = f"Search failed: {response.status_code}"
                 print(f"❌ {error_msg}")
@@ -477,7 +542,7 @@ class CreativePreviewerApp:
                 CREATIVE_PULLING_TABLE,
                 creative_id,
             )
-            
+
             if results:
                 # Format results - only essential information
                 result_text = f"✅ FOUND: Creative ID '{creative_id}' is in the pulling queue\n\n"
@@ -520,6 +585,8 @@ class CreativePreviewerApp:
         self.unified_results.delete(1.0, tk.END)
         self.unified_results.insert(tk.END, result_text)
         self.unified_results.config(state=tk.DISABLED)
+        if hasattr(self, 'unified_status_label'):
+            self.unified_status_label.config(text="")
     
     def _unified_save_thread(self, creative_id, ad_network_id, user_email=""):
         """Save creative in background thread"""
@@ -568,6 +635,76 @@ class CreativePreviewerApp:
             error_msg = f"❌ Error submitting creative: {str(e)}"
             self.root.after(0, lambda: self._unified_save_completed(error_msg, False))
     
+    def _unified_save_multi_thread(self, creative_ids, ad_network_id, user_email=""):
+        """Save multiple creatives in one background task, reusing one Demand Source ID."""
+        try:
+            if not self.savanna_client:
+                self.root.after(0, lambda: self._unified_save_completed("❌ Savanna client not available", False))
+                return
+
+            from services.savanna_actions import build_creation_and_expire_dates, submit_creative
+            creation_date, expire_date = build_creation_and_expire_dates()
+
+            successes = []
+            failures = []
+
+            # Pre-parse email list once
+            email_parts = []
+            if user_email:
+                email_parts = [p.strip() for p in re.split(r"[,;]", user_email) if p.strip()]
+
+            for cid in creative_ids:
+                try:
+                    result = submit_creative(self.savanna_client, cid, int(ad_network_id), creation_date, expire_date, True)
+                    if result:
+                        # Watchlist insert per-id if emails provided
+                        if email_parts:
+                            try:
+                                from services.watchlist import insert_watchlist_entries
+                                insert_watchlist_entries(
+                                    DATABRICKS_SERVER_HOSTNAME,
+                                    DATABRICKS_HTTP_PATH,
+                                    self.access_token,
+                                    cid,
+                                    email_parts,
+                                )
+                                successes.append((cid, True, None))
+                            except Exception as e:
+                                successes.append((cid, True, f"Watchlist insert failed: {e}"))
+                        else:
+                            successes.append((cid, True, None))
+                    else:
+                        failures.append((cid, "Submit returned no result"))
+                except Exception as e:
+                    failures.append((cid, str(e)))
+
+            # Build aggregate message
+            lines = []
+            if successes:
+                lines.append(f"✅ Submitted {len(successes)} creative(s):")
+                for cid, ok, warn in successes[:50]:
+                    base = f"  • {cid}"
+                    if warn:
+                        base += f" (⚠️ {warn})"
+                    lines.append(base)
+                if len(successes) > 50:
+                    lines.append(f"  • …and {len(successes) - 50} more")
+            if failures:
+                lines.append("")
+                lines.append(f"❌ Failed {len(failures)} creative(s):")
+                for cid, err in failures[:50]:
+                    lines.append(f"  • {cid}: {err}")
+                if len(failures) > 50:
+                    lines.append(f"  • …and {len(failures) - 50} more")
+
+            result_text = "\n".join(lines) if lines else "No submissions performed."
+            overall_success = len(failures) == 0 and len(successes) > 0
+            self.root.after(0, lambda: self._unified_save_completed(result_text, overall_success))
+
+        except Exception as e:
+            error_msg = f"❌ Error submitting creatives: {str(e)}"
+            self.root.after(0, lambda: self._unified_save_completed(error_msg, False))
+
     def _unified_save_completed(self, result_text, success):
         """Handle completed unified save operation"""
         self.unified_action_button.config(state='normal')
@@ -581,7 +718,9 @@ class CreativePreviewerApp:
             messagebox.showinfo("Submit Successful", f"Creative submitted successfully!")
         else:
             messagebox.showerror("Submit Failed", f"Failed to submit creative: {result_text}")
-        
+        if hasattr(self, 'unified_status_label'):
+            self.unified_status_label.config(text="")
+    
     def save_creative_to_savanna(self):
         """Save creative to Savanna database"""
         creative_id = self.save_creative_id_var.get().strip()
@@ -732,15 +871,15 @@ class CreativePreviewerApp:
                 params["start_ts"] = start_ts
             if end_ts:
                 params["end_ts"] = end_ts
-
+            
             # Disable button and show status
             self.run_job_button.config(state='disabled')
             self.job_status_label.config(text="🔄 Running job...")
             self.root.update()
-
+            
             # Run job in background thread
             threading.Thread(target=self._run_job_thread, args=(params,), daemon=True).start()
-
+            
         except Exception as e:
             messagebox.showerror("Error", f"Failed to start job: {str(e)}")
             self.run_job_button.config(state='normal')
@@ -1043,7 +1182,7 @@ class CreativePreviewerApp:
     
     def create_right_panel(self, parent):
         # Title
-        title_label = ttk.Label(parent, text="Preview Area", font=("Arial", 16, "bold"))
+        title_label = ttk.Label(parent, text="🎬 Preview Area", font=("Arial", 16, "bold"))
         title_label.pack(pady=(0, 10))
         
         # Control buttons
@@ -1568,7 +1707,7 @@ Raw Size: {self.selected_creative['size']}"""
     # Settings UI moved to ui.settings
 
     # Databricks settings UI moved to ui.settings
-
+    
     def format_xml(self):
         """Format XML markup in the text area"""
         if not self.current_markup:
