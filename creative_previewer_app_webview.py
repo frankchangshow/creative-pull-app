@@ -18,6 +18,10 @@ import threading
 from databricks import sql
 import xml.etree.ElementTree as ET
 import configparser
+import ssl
+import socket
+import logging
+from logging.handlers import RotatingFileHandler
 
 import html
 import re
@@ -39,6 +43,113 @@ DATABRICKS_WORKSPACE_URL = "https://3218046436603353.3.gcp.databricks.com"
 JOB_ID = 366113680363745  # Creative Pull GCS Job
 CREATIVE_PULLING_TABLE = "prod_inneractive_engines_db.inneractive_db_1_8.creative_pulling"
 
+
+def _log_tls_debug_info():
+    """Log TLS/CA context details to help diagnose SSLError issues on some Macs."""
+    _logger = logging.getLogger(__name__)
+    try:
+        host = DATABRICKS_SERVER_HOSTNAME
+        # Env overview
+        ca_env = os.environ.get('REQUESTS_CA_BUNDLE')
+        ssl_env = os.environ.get('SSL_CERT_FILE')
+        app_env = os.environ.get('CREATIVE_PULL_APP_CA_BUNDLE')
+        cfg_env = os.environ.get('CREATIVE_PULL_APP_CONFIG')
+        _logger.info(f"🔐 TLS: OpenSSL={ssl.OPENSSL_VERSION}")
+        _logger.info(f"🔐 TLS: REQUESTS_CA_BUNDLE={ca_env or 'unset'}")
+        _logger.info(f"🔐 TLS: SSL_CERT_FILE={ssl_env or 'unset'}")
+        _logger.info(f"🔐 TLS: CREATIVE_PULL_APP_CA_BUNDLE={app_env or 'unset'}")
+        _logger.info(f"🔐 TLS: CREATIVE_PULL_APP_CONFIG={cfg_env or 'unset'}")
+
+        # Certifi path (bundled CA) if available
+        certifi_path = None
+        try:
+            import certifi as _certifi
+            certifi_path = _certifi.where()
+            _logger.info(f"🔐 TLS: certifi.where()={certifi_path} exists={os.path.isfile(certifi_path)}")
+        except Exception as _e:
+            _logger.warning(f"⚠️ TLS: certifi not available: {_e}")
+
+        # Attempt a short TLS handshake to report status
+        try:
+            ca_candidate = ca_env or ssl_env or certifi_path
+            if ca_candidate and os.path.isfile(ca_candidate):
+                ctx = ssl.create_default_context(cafile=ca_candidate)
+            else:
+                ctx = ssl.create_default_context()
+            with socket.create_connection((host, 443), timeout=3) as sock:
+                with ctx.wrap_socket(sock, server_hostname=host) as ssock:
+                    cert = ssock.getpeercert() or {}
+                    subject = cert.get('subject')
+                    issuer = cert.get('issuer')
+                    _logger.info(f"🔐 TLS: Handshake OK with {host}. Subject={subject} Issuer={issuer}")
+        except Exception as he:
+            _logger.error(f"❌ TLS: Handshake error with {host}: {he!r}")
+    except Exception as e:
+        _logger.warning(f"⚠️ TLS debug error: {e!r}")
+
+
+def _setup_file_logging():
+    """Configure a rotating file logger at ~/CreativePullApp.log for double-click runs."""
+    try:
+        log_path = os.path.expanduser('~/CreativePullApp.log')
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+        # Avoid duplicates if re-run
+        if not any(isinstance(h, RotatingFileHandler) and getattr(h, 'baseFilename', '') == log_path for h in root_logger.handlers):
+            handler = RotatingFileHandler(log_path, maxBytes=2_000_000, backupCount=3, encoding='utf-8')
+            formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s')
+            handler.setFormatter(formatter)
+            root_logger.addHandler(handler)
+            print(f"📝 File logging enabled at {log_path}")
+    except Exception as e:
+        print(f"⚠️ Failed to set up file logging: {e!r}")
+
+def _attempt_tls_fixup_on_macos():
+    """If TLS handshake fails, try generating a full-chain PEM from macOS keychains.
+
+    Saves to ~/.creative_pull_app/full-chain.pem and persists config to use it.
+    """
+    try:
+        if sys.platform != 'darwin':
+            return False
+        # If already set via env or config, skip
+        if os.environ.get('REQUESTS_CA_BUNDLE') or os.environ.get('SSL_CERT_FILE'):
+            return False
+        # Try a quick handshake first
+        host = DATABRICKS_SERVER_HOSTNAME
+        try:
+            ctx = ssl.create_default_context()
+            with socket.create_connection((host, 443), timeout=3) as sock:
+                with ctx.wrap_socket(sock, server_hostname=host):
+                    return False  # OK, no fix-up needed
+        except Exception:
+            pass
+        # Generate full-chain from keychains
+        target = os.path.expanduser('~/.creative_pull_app/full-chain.pem')
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        cmds = [
+            f"security find-certificate -a -p /System/Library/Keychains/SystemRootCertificates.keychain > '{target}'",
+            f"security find-certificate -a -p /Library/Keychains/System.keychain >> '{target}'",
+            f"security find-certificate -a -p login.keychain-db >> '{target}' || true",
+        ]
+        for c in cmds:
+            os.system(c)
+        if os.path.isfile(target) and os.path.getsize(target) > 0:
+            # Persist in config and env
+            try:
+                from config.app_config import set_ca_bundle_path_in_config as _save_ca
+                _save_ca(target)
+            except Exception:
+                pass
+            os.environ['REQUESTS_CA_BUNDLE'] = target
+            os.environ['SSL_CERT_FILE'] = target
+            print(f"🔐 TLS fix-up: using generated CA bundle: {target}")
+            return True
+    except Exception as e:
+        print(f"⚠️ TLS fix-up failed: {e!r}")
+    return False
+
 class CreativePreviewerApp:
     def __init__(self, root):
         self.root = root
@@ -49,6 +160,21 @@ class CreativePreviewerApp:
         self.creatives = []
         self.current_creative = None
         self.current_markup = None
+        # Ensure file logging so double-click runs capture output
+        try:
+            _setup_file_logging()
+        except Exception:
+            pass
+        # Print TLS/CA diagnostics early (before network calls) and after file logging is set
+        try:
+            _log_tls_debug_info()
+        except Exception:
+            pass
+        # If TLS diagnostic handshake fails later, attempt macOS fix-up automatically
+        try:
+            _attempt_tls_fixup_on_macos()
+        except Exception:
+            pass
         # Load token via externalized config loader
         from config.app_config import load_configuration
         self.access_token = load_configuration()
